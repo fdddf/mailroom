@@ -1,3 +1,8 @@
+/* The page behind the cards (theme.ts), also under the login form. */
+:global(body) {
+  background: var(--app-canvas);
+}
+
 .row {
   display: block;
   width: 100%;
@@ -69,7 +74,7 @@
   z-index: 10;
   margin: calc(var(--mantine-spacing-md) * -1) calc(var(--mantine-spacing-md) * -1) var(--mantine-spacing-md);
   padding: 6px var(--mantine-spacing-md) 0;
-  background: var(--mantine-color-body);
+  background: var(--app-canvas);
   overflow-x: auto;
 }
 .tabBar :global(.mantine-Tabs-list) {

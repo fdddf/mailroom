@@ -8,11 +8,11 @@ import { BrowserRouter } from 'react-router'
 import { AuthGate } from './components/AuthGate'
 import { Shell } from './components/Shell'
 import { queryClient } from './hooks'
-import { theme } from './theme'
+import { cssVariablesResolver, theme } from './theme'
 
 export default function App() {
   return (
-    <MantineProvider theme={theme} defaultColorScheme="auto">
+    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="auto">
       <ModalsProvider labels={{ confirm: 'Confirm', cancel: 'Cancel' }}>
         <Notifications position="top-right" />
         <QueryClientProvider client={queryClient}>

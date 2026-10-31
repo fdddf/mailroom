@@ -18,7 +18,7 @@ const page = (title: string, brand: string, body: string) => `<!doctype html>
 <title>${escapeHtml(title)}${brand ? ` · ${escapeHtml(brand)}` : ''}</title>
 <style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;color:#141413;background:#faf9f5;margin:0;padding:15vh 24px;text-align:center}
 main{max-width:420px;margin:auto}h1{font-size:22px;margin:0 0 8px}p{color:#68685f;margin:0 0 24px}
-button{font:inherit;font-weight:600;color:#fff;background:#b0522f;border:0;border-radius:8px;padding:10px 20px;cursor:pointer}
+button{font:inherit;font-weight:600;color:#fff;background:#2563eb;border:0;border-radius:8px;padding:10px 20px;cursor:pointer}
 @media (prefers-color-scheme:dark){body{color:#f4f3ee;background:#1f1e1b}p{color:#b5b3a8}}</style>
 </head><body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`
 

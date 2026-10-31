@@ -46,8 +46,8 @@ const isDocument = (html: string) => /<(html|body)[\s>]/i.test(html)
 // editor is not Times New Roman. It lives in <head> and is not part of the result.
 const SHELL = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#141413}img{max-width:100%}</style></head><body>`
 
-const TEXT_COLORS = ['#141413', '#68685f', '#b0522f', '#d97757', '#1c7ed6', '#2f9e44', '#e03131', '#ffffff']
-const HIGHLIGHTS = ['transparent', '#fff3bf', '#ffe3e3', '#d3f9d8', '#d0ebff', '#f7e0d6']
+const TEXT_COLORS = ['#141413', '#68685f', '#2563eb', '#7c3aed', '#f08c00', '#2f9e44', '#e03131', '#ffffff']
+const HIGHLIGHTS = ['transparent', '#fff3bf', '#ffe3e3', '#d3f9d8', '#dbe8fe', '#f3e8ff']
 const SIZES = [
   ['Small', '13px'],
   ['Normal', '15px'],
@@ -55,7 +55,7 @@ const SIZES = [
   ['Larger', '24px'],
   ['Huge', '32px'],
 ] as const
-const BUTTON_STYLE = 'display:inline-block;padding:12px 24px;background:#b0522f;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600'
+const BUTTON_STYLE = 'display:inline-block;padding:12px 24px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600'
 
 // What the toolbar lights up for at the cursor.
 type State = {
