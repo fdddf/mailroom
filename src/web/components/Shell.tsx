@@ -1,4 +1,4 @@
-import { ActionIcon, AppShell, Badge, Burger, CloseButton, Group, NavLink, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core'
+import { ActionIcon, AppShell, Badge, Burger, CloseButton, Group, NavLink, ScrollArea, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import {
   IconAddressBook,
@@ -177,19 +177,21 @@ export function Shell() {
   return (
     <AppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !opened } }} padding="md">
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Group gap="sm">
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Menu" />
             <img src="/logo.svg" alt="" width={24} height={24} />
             <Text fw={700} visibleFrom="xs">
               Mailroom
             </Text>
           </Group>
-          <Group gap="xs" wrap="nowrap">
+          {/* On the narrowest phones the domain picker gives way, not the buttons. */}
+          <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             <Select
               aria-label="Domain"
               leftSection={<IconWorld size={16} />}
               w={{ base: 170, sm: 240 }}
+              style={{ minWidth: 0 }}
               data={[{ value: '', label: 'All domains' }, ...(session?.domains ?? []).map((d) => ({ value: String(d.id), label: d.name }))]}
               value={domainId ? String(domainId) : ''}
               onChange={(v) => setDomain(v ? Number(v) : null)}
@@ -210,27 +212,30 @@ export function Shell() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
-        {GROUPS.map((group) => (
-          <Fragment key={group.label}>
-            <Text className={classes.navLabel}>{group.label}</Text>
-            {group.sections.map(({ to, label, icon: Icon, badge }) => {
-              const n = badge ? session?.counts[badge] : 0
-              return (
-                <NavLink
-                  key={to}
-                  label={label}
-                  leftSection={<Icon size={18} stroke={1.6} />}
-                  rightSection={n ? <Badge size="sm" circle={n < 10}>{n}</Badge> : null}
-                  active={to === section.to}
-                  onClick={() => show(to)}
-                  variant="light"
-                  style={{ borderRadius: 'var(--mantine-radius-md)' }}
-                />
-              )
-            })}
-          </Fragment>
-        ))}
+      <AppShell.Navbar>
+        {/* Scrolls on its own: the menu is taller than a short window. */}
+        <AppShell.Section grow component={ScrollArea} p="xs">
+          {GROUPS.map((group) => (
+            <Fragment key={group.label}>
+              <Text className={classes.navLabel}>{group.label}</Text>
+              {group.sections.map(({ to, label, icon: Icon, badge }) => {
+                const n = badge ? session?.counts[badge] : 0
+                return (
+                  <NavLink
+                    key={to}
+                    label={label}
+                    leftSection={<Icon size={18} stroke={1.6} />}
+                    rightSection={n ? <Badge size="sm" circle={n < 10}>{n}</Badge> : null}
+                    active={to === section.to}
+                    onClick={() => show(to)}
+                    variant="light"
+                    style={{ borderRadius: 'var(--mantine-radius-md)' }}
+                  />
+                )
+              })}
+            </Fragment>
+          ))}
+        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main>
