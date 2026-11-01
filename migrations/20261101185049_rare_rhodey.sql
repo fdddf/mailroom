@@ -1,0 +1,1 @@
+ALTER TABLE `broadcast` ADD `public_url` text DEFAULT '' NOT NULL;

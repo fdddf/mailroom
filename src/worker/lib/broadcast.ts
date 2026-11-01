@@ -121,7 +121,7 @@ const sendBatch = async (db: Db, send: Send, publicUrl: string, b: typeof broadc
         await release(r.id)
         continue
       }
-      const url = unsubscribeUrl(publicUrl, r.token)
+      const url = unsubscribeUrl(publicUrl || b.publicUrl, r.token)
       const result = await send({
         from,
         to: [r.email],

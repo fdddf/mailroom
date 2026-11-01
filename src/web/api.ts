@@ -50,7 +50,7 @@ const MESSAGES: Record<string, string> = {
   too_many_webhooks: 'A domain can have at most 10 webhooks.',
   mailbox_exists: 'That mailbox already exists.',
   default_mailbox: 'Make another mailbox of this domain the default first.',
-  admin_not_configured: 'The dashboard is disabled: set the ADMIN_PASSWORD secret (npx wrangler secret put ADMIN_PASSWORD).',
+  admin_not_configured: 'The dashboard is disabled: add the secret ADMIN_PASSWORD under this Worker\'s Settings → Variables and Secrets in the Cloudflare dashboard.',
   send_failed: 'The email could not be sent',
   not_a_draft: 'Only a draft can be changed or sent.',
   broadcast_in_progress: 'Stop the broadcast before deleting it.',

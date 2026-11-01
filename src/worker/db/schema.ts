@@ -171,6 +171,9 @@ export const broadcast = sqliteTable(
     format: text('format', { enum: BODY_FORMATS }).notNull().default('text'),
     status: text('status', { enum: BROADCAST_STATUSES }).notNull().default('draft'),
     scheduledAt: text('scheduled_at'),
+    // The address the dashboard was on when it was queued. The cron that sends
+    // it has no request to read one from, and unsubscribe links need it.
+    publicUrl: text('public_url').notNull().default(''),
     sentAt: text('sent_at'),
     createdAt: text('created_at').notNull().default(now),
     // Filled in as it goes out.

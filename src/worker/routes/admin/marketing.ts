@@ -318,7 +318,10 @@ export const broadcastRoutes = new Hono<AppEnv>()
       .innerJoin(contact, eq(contact.id, contactSegment.contactId))
       .where(and(eq(contactSegment.segmentId, row.segmentId), eq(contact.unsubscribed, false)))
     if (!n) return c.json({ error: 'empty_segment' }, 400)
-    await db.update(broadcast).set({ status: 'queued', scheduledAt: scheduledAt ?? null }).where(and(eq(broadcast.id, row.id), eq(broadcast.status, 'draft')))
+    await db
+      .update(broadcast)
+      .set({ status: 'queued', scheduledAt: scheduledAt ?? null, publicUrl: new URL(c.req.url).origin })
+      .where(and(eq(broadcast.id, row.id), eq(broadcast.status, 'draft')))
     return c.json({ id: String(row.id), recipients: n })
   })
   // A queued one goes back to being a draft; one that is going out stops, and

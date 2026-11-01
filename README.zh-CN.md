@@ -12,21 +12,32 @@
 
 ## 部署
 
+不需要改任何配置文件。首次部署会在你的账号里自动创建数据库、存储桶和队列，并建好数据表。开始前，先在 Cloudflare 控制台开通一次 R2。
+
+**方式一：一键部署**
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fdddf/mailroom)
+
+按页面提示操作，并设置后台密码 `ADMIN_PASSWORD`。
+
+**方式二：在 Cloudflare 控制台导入仓库**
+
+1. Fork 本仓库，然后在 **Workers & Pages → Create → Import a repository** 选择它
+2. 把 **Deploy command** 设为 `npm run deploy`，Worker 名称保持 `mailroom`
+3. 部署完成后，在 Worker 的 **Settings → Variables and Secrets** 添加 Secret `ADMIN_PASSWORD`
+
+**方式三：命令行**
+
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create mailroom          # 把 database_id 填进 wrangler.jsonc
-npx wrangler r2 bucket create mailroom
-npx wrangler queues create mailroom-events
-```
-
-在 `wrangler.jsonc` 里把 `PUBLIC_URL` 改成 Worker 的公开地址（退订链接和邮件图片指向这里）。然后：
-
-```bash
-npm run db:migrate
-npx wrangler secret put ADMIN_PASSWORD
 npm run deploy
+npx wrangler secret put ADMIN_PASSWORD
 ```
+
+打开 Worker 的地址，登录后到 **Domains** 添加域名。
+
+想用自己的域名访问后台，在 Worker 的 **Settings → Domains & Routes** 添加。邮件里的退订链接默认使用排队群发时后台所在的地址；要固定地址，就在 **Variables and Secrets** 里设置 `PUBLIC_URL`。
 
 建议在后台前面加 Cloudflare Access（保护 `/` 和 `/api/admin/*`，`/v1/*`、`/u/*`、`/media/*` 保持公开）。
 
@@ -35,7 +46,7 @@ npm run deploy
 1. 后台 **Domains** → Add a domain，填域名、品牌名、第一个邮箱（如 `hello`）
 2. 域名页面会列出三条现成的命令，复制运行即可：
    - `npx wrangler email sending enable example.com`（开通发信）
-   - `npx wrangler email routing enable example.com` 并把 catch-all 指向 Worker `mailroom`（开通收信）
+   - `npx wrangler email routing enable example.com` 并把 catch-all 指向 Worker `mailroom` 且启用（开通收信）
    - 给 `mailroom-events` 队列订阅该域名的投递事件（显示投递状态）
 3. 页面上的 DNS 检查变绿后，点 **Send test** 发一封测试信
 
@@ -56,7 +67,7 @@ curl https://mailroom.example.com/v1/send \
 ## 本地开发
 
 ```bash
-cp .dev.vars.example .dev.vars
+cp .dev.vars.example .dev.vars   # 在里面设置一个密码
 npm run db:migrate:local
 npm run dev        # http://localhost:5173
 npm test

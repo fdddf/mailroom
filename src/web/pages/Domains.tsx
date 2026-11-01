@@ -231,7 +231,7 @@ function Setup({ id, name }: { id: string; name: string }) {
       <Text size="sm" fw={600}>
         2. Receiving: turn on Email Routing and send every address to Mailroom
       </Text>
-      <Copyable value={`npx wrangler email routing enable ${name}\nnpx wrangler email routing rules update ${name} catch-all --action-type worker --action-value ${WORKER}`} />
+      <Copyable value={`npx wrangler email routing enable ${name}\nnpx wrangler email routing rules update ${name} catch-all --action-type worker --action-value ${WORKER} --enabled true`} />
       <Text size="xs" c="dimmed">
         Rules for single addresses (e.g. forwarding one to a personal inbox) take precedence over the catch-all. Whether mail to an address without a mailbox is kept is
         decided under Settings below.

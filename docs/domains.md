@@ -19,7 +19,7 @@ Check: the dashboard's "Onboarded to Email Sending" turns green, and **Send test
 
 ```bash
 npx wrangler email routing enable example.com
-npx wrangler email routing rules update example.com catch-all --action-type worker --action-value mailroom
+npx wrangler email routing rules update example.com catch-all --action-type worker --action-value mailroom --enabled true
 ```
 
 The catch-all hands every address on the domain to the Worker (named `mailroom` in `wrangler.jsonc`; use your name if you changed it). The Worker then decides:

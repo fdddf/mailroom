@@ -18,31 +18,35 @@ Everything is one Worker: the dashboard is served as static assets, and there is
 
 ## Install
 
+No configuration file needs editing. The first deploy creates the database, bucket and queue in your account, and the tables. Before you start, enable R2 once in the Cloudflare dashboard.
+
+**Deploy button**
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fdddf/mailroom)
+
+Follow the page, and set the dashboard password `ADMIN_PASSWORD`.
+
+**Import the repository in the Cloudflare dashboard**
+
+1. Fork this repository, then pick it under **Workers & Pages → Create → Import a repository**
+2. Set **Deploy command** to `npm run deploy`, and keep the Worker name `mailroom`
+3. After it deploys, add the secret `ADMIN_PASSWORD` under the Worker's **Settings → Variables and Secrets**
+
+**Command line**
+
 ```bash
-git clone <this repo> mailroom && cd mailroom
+git clone https://github.com/fdddf/mailroom && cd mailroom
 npm install
 npx wrangler login
-```
-
-Create the resources and put the database id into `wrangler.jsonc`:
-
-```bash
-npx wrangler d1 create mailroom          # copy the database_id into wrangler.jsonc
-npx wrangler r2 bucket create mailroom
-npx wrangler queues create mailroom-events
-```
-
-In `wrangler.jsonc`, set `PUBLIC_URL` to where the Worker will be reachable (its `*.workers.dev` address, or a custom domain under `routes`). Unsubscribe links and email images point there, so it must be public.
-
-Then create the tables, set the dashboard password, and deploy:
-
-```bash
-npm run db:migrate
-npx wrangler secret put ADMIN_PASSWORD
 npm run deploy
+npx wrangler secret put ADMIN_PASSWORD
 ```
 
-Open `PUBLIC_URL`, sign in, and add your first domain under **Domains**. It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/u/*` and `/media/*` public).
+Open the Worker's address, sign in, and add your first domain under **Domains**.
+
+To use your own hostname, add it under the Worker's **Settings → Domains & Routes**. Unsubscribe links use the address the dashboard was on when a broadcast was queued; set the variable `PUBLIC_URL` under **Variables and Secrets** to fix one address instead.
+
+It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/u/*` and `/media/*` public).
 
 ## Adding a domain
 
@@ -70,7 +74,7 @@ Sending, contacts and webhooks are documented in [docs/api.md](docs/api.md).
 ## Development
 
 ```bash
-cp .dev.vars.example .dev.vars   # ADMIN_PASSWORD for local sign-in
+cp .dev.vars.example .dev.vars   # choose a password for local sign-in
 npm run db:migrate:local
 npm run dev                      # dashboard and Worker at http://localhost:5173
 ```

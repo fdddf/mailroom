@@ -3,7 +3,8 @@
 // it also receives mail (Email Routing), sends it (Email Sending), runs
 // broadcasts (cron) and records delivery events (queue).
 //
-// Setup, step by step: README.md. Values marked CHANGE ME are yours to fill in.
+// Nothing here needs editing to deploy: the first deploy creates the database,
+// the bucket and the queue in your account. Setup: README.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mailroom",
@@ -16,19 +17,14 @@
     "run_worker_first": ["/api/*", "/v1/*", "/u/*", "/media/*"]
   },
 
-  // Optional: serve it on a hostname of yours instead of *.workers.dev.
-  // "routes": [{ "pattern": "mail.example.com", "custom_domain": true }],
-
-  "vars": {
-    // CHANGE ME: where this Worker is reachable. Unsubscribe links and the
-    // images in HTML email point here, so recipients must be able to open it.
-    "PUBLIC_URL": "https://mailroom.example.workers.dev"
-    // Optional push notifications for new mail through Bark (https://bark.day.app):
-    // "BARK_SERVER_URL": "https://api.day.app"  plus the secret BARK_DEVICE_KEY
-  },
-  // Secrets (npx wrangler secret put <NAME>):
-  //   ADMIN_PASSWORD   required: the dashboard password
-  //   BARK_DEVICE_KEY  optional, see above
+  // Variables and custom domains are set on the Worker in the Cloudflare
+  // dashboard, so a deploy keeps them and this file stays the same for everyone:
+  //   ADMIN_PASSWORD   secret, required: the dashboard password
+  //   PUBLIC_URL       optional: where recipients reach this Worker. Without it,
+  //                    links in email use the address the dashboard is open on.
+  //   BARK_SERVER_URL  optional: push notifications for new mail through Bark
+  //   BARK_DEVICE_KEY  (https://bark.day.app), e.g. https://api.day.app and a secret
+  "keep_vars": true,
 
   // Sends from any address on a domain onboarded to Cloudflare Email Sending.
   "send_email": [{ "name": "EMAIL" }],
@@ -36,9 +32,8 @@
   "d1_databases": [
     {
       "binding": "DB",
+      // No database_id: found by this name, or created on the first deploy.
       "database_name": "mailroom",
-      // CHANGE ME: the id printed by `npx wrangler d1 create mailroom`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
@@ -49,6 +44,9 @@
   // Delivery events from Email Sending (delivered, bounced, …), one
   // subscription per sending domain (see docs/domains.md).
   "queues": {
+    // The Worker only consumes this queue, and the code never uses the binding.
+    // It is here because a deploy creates a queue only if it has a producer.
+    "producers": [{ "binding": "EVENTS_QUEUE", "queue": "mailroom-events" }],
     "consumers": [{ "queue": "mailroom-events", "max_batch_size": 50, "max_batch_timeout": 5 }]
   },
 
