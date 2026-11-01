@@ -132,7 +132,9 @@ export function Shell() {
   }, [domainId, client])
   // A stored domain that is gone: back to all of them.
   useEffect(() => {
-    if (session && domainId && session.domainId === null) setDomain(null)
+    // By the list, not session.domainId: that still names the old domain until
+    // the refetch for a domain just picked comes back.
+    if (session && domainId && !session.domains.some((d) => d.id === domainId)) setDomain(null)
   }, [session, domainId])
 
   const logout = async () => {
