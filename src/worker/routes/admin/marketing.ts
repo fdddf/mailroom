@@ -29,6 +29,7 @@ const contactView = (c: Contact) => ({
   first_name: c.firstName || null,
   last_name: c.lastName || null,
   unsubscribed: c.unsubscribed,
+  confirmed_at: c.confirmedAt,
   created_at: c.createdAt,
 })
 

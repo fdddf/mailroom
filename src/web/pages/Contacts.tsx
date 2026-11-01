@@ -6,6 +6,7 @@ import { Link } from 'react-router'
 import { api, call, errorText } from '../api'
 import { fmt, useAction, useScope } from '../hooks'
 import { PageHeader, PickDomain, confirm } from '../components/ui'
+import { SignupForms } from './SignupForms'
 
 // The picked domain's contacts and segments.
 export function ContactsPage() {
@@ -16,6 +17,7 @@ export function ContactsPage() {
       {domain ? (
         <>
           <Segments />
+          <SignupForms />
           <Contacts />
         </>
       ) : (
@@ -189,9 +191,11 @@ function Contacts() {
                 <Table.Td>{c.email}</Table.Td>
                 <Table.Td>{[c.first_name, c.last_name].filter(Boolean).join(' ')}</Table.Td>
                 <Table.Td>
-                  <Badge variant="light" color={c.unsubscribed ? 'red' : 'teal'}>
-                    {c.unsubscribed ? 'Unsubscribed' : 'Subscribed'}
-                  </Badge>
+                  <Tooltip label={`Confirmed by email ${fmt(c.confirmed_at ?? '')}`} disabled={!c.confirmed_at}>
+                    <Badge variant="light" color={c.unsubscribed ? 'red' : 'teal'}>
+                      {c.unsubscribed ? 'Unsubscribed' : 'Subscribed'}
+                    </Badge>
+                  </Tooltip>
                 </Table.Td>
                 <Table.Td c="dimmed">{fmt(c.created_at)}</Table.Td>
                 <Table.Td>

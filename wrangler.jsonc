@@ -1,5 +1,6 @@
 // Mailroom: one Worker serves the dashboard (static assets), the admin API,
-// the integration API, the unsubscribe pages and the images for HTML email;
+// the integration API, public sign-up forms, the unsubscribe and confirmation
+// pages and the images for HTML email;
 // it also receives mail (Email Routing), sends it (Email Sending), runs
 // broadcasts (cron) and records delivery events (queue).
 //
@@ -14,7 +15,7 @@
   // The dashboard is a single-page app; everything else is the Worker's.
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/v1/*", "/u/*", "/media/*"]
+    "run_worker_first": ["/api/*", "/v1/*", "/u/*", "/c/*", "/subscribe/*", "/media/*"]
   },
 
   // Variables and custom domains are set on the Worker in the Cloudflare

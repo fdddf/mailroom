@@ -5,7 +5,6 @@ import {
   Button,
   Checkbox,
   Code,
-  CopyButton,
   Group,
   Loader,
   Paper,
@@ -17,10 +16,9 @@ import {
   TextInput,
   Textarea,
   Title,
-  Tooltip,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import { IconCheck, IconCircleCheck, IconCircleDashed, IconCircleX, IconCopy, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
+import { IconCircleCheck, IconCircleDashed, IconCircleX, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -28,7 +26,7 @@ import { api, call, errorText } from '../api'
 import { setDomain } from '../domain'
 import { fmt, useAction, useSession } from '../hooks'
 import { useTab, useTabTitle } from '../components/tabs'
-import { ListPanel, ListRow, MasterDetail, PageHeader, confirm } from '../components/ui'
+import { Copyable, ListPanel, ListRow, MasterDetail, PageHeader, confirm } from '../components/ui'
 
 // The Worker's name in wrangler.jsonc, for the Email Routing command.
 const WORKER = 'mailroom'
@@ -123,25 +121,6 @@ function Section({ title, description, children, action }: { title: string; desc
       )}
       {children}
     </Stack>
-  )
-}
-
-function Copyable({ value, children }: { value: string; children?: ReactNode }) {
-  return (
-    <Group gap={4} wrap="nowrap" align="flex-start">
-      <Code block style={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-        {children ?? value}
-      </Code>
-      <CopyButton value={value}>
-        {({ copied, copy }) => (
-          <Tooltip label={copied ? 'Copied' : 'Copy'}>
-            <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy} aria-label="Copy">
-              {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-            </ActionIcon>
-          </Tooltip>
-        )}
-      </CopyButton>
-    </Group>
   )
 }
 

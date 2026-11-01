@@ -20,6 +20,7 @@ import { emailConfigured } from '../../lib/mailer'
 import { emptyBody, validate } from '../../lib/validate'
 import { aiRoutes } from './ai'
 import { domainRoutes } from './domains'
+import { formRoutes } from './forms'
 import { mailRoutes, sentRoutes } from './mail'
 import { mailboxRoutes } from './mailboxes'
 import { broadcastRoutes, contactRoutes, segmentRoutes } from './marketing'
@@ -149,4 +150,5 @@ export const adminRoutes = new Hono<AppEnv>()
   .route('/media', mediaRoutes)
   .route('/contacts', contactRoutes)
   .route('/segments', segmentRoutes)
+  .route('/forms', formRoutes)
   .route('/broadcasts', broadcastRoutes)

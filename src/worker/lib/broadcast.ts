@@ -9,7 +9,7 @@ import { broadcast, broadcastRecipient, contact, domain, type BodyFormat, type D
 import { resolveSender, type SendRequest, type SendResponse } from './mailer'
 import { fillVariables, htmlToText, textToHtml } from './text'
 
-const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+export const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 const OWN_UNSUBSCRIBE = /\{\{\s*unsubscribe_url\s*\}\}/i
 

@@ -19,6 +19,7 @@ import { domain, mailbox, type Attachment } from './db/schema'
 import type { Env } from './env'
 import { sendBark } from './lib/bark'
 import { processBroadcasts, suppressContact } from './lib/broadcast'
+import { purgeExpiredSubscriptions } from './lib/subscribe'
 import { deliver, recordDeliveryStatus, storeInbound } from './lib/mailer'
 import { bareAddress, domainOf } from './lib/text'
 import { emitEvent } from './lib/webhooks'
@@ -137,7 +138,9 @@ export default {
   },
 
   async scheduled(_controller: unknown, env: Env) {
-    await processBroadcasts(getDb(env.DB), (m) => deliver(env, m), publicUrl(env))
+    const db = getDb(env.DB)
+    await purgeExpiredSubscriptions(db)
+    await processBroadcasts(db, (m) => deliver(env, m), publicUrl(env))
   },
 
   async queue(batch: MessageBatch<DeliveryEvent>, env: Env) {

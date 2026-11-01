@@ -122,6 +122,49 @@ Marks them unsubscribed (they stay on file, so an import cannot add them back).
 
 Forgets them entirely, e.g. for a data deletion request.
 
+## Public sign-up forms
+
+For a website to collect subscribers with no server of its own. No API key is involved: the form's address is public, and these guard it:
+
+- **Allowed websites:** only the `Origin`s listed on the form are accepted.
+- **Turnstile:** every submission needs a fresh token; its action must be `subscribe` and its hostname one of the allowed websites.
+- **Double opt-in:** a submission only sends a confirmation email. The person joins the form's segment when they click its button, and the time is kept as `confirmedAt` on the contact. Unconfirmed submissions expire after 7 days. Confirming also resubscribes someone who had unsubscribed: that is their own click.
+- **Limits:** one confirmation email per address per 10 minutes, and 10 unconfirmed submissions per IP address per hour.
+
+### Setting one up
+
+1. In the Cloudflare dashboard, add a widget under **Turnstile** with your website's hostnames (managed mode is fine), and note its site key and secret key.
+2. In Mailroom, go to **Contacts** → **Sign-up forms** → **New form**: the segment, the websites (`https://example.com`; `www` is a separate one) and both keys. The domain needs a default mailbox to send from.
+3. Paste its **Embed code** into your website.
+
+To try it locally, list `http://localhost:<port>` as a website and use Cloudflare's [test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/). Test keys are refused from any other website, so they cannot be left on by accident. Take `localhost` off the form before going live.
+
+### `POST /subscribe/:publicId`
+
+`multipart/form-data`, `application/x-www-form-urlencoded` or JSON:
+
+| Field | | |
+| --- | --- | --- |
+| `email` | string | Required |
+| `cf-turnstile-response` | string | Required: the widget adds it to the form by itself. It works once; reset the widget after every attempt |
+| `firstName`, `lastName` | string | Optional |
+
+With `text/html` in `Accept` (a plain form post) the answer is a page. Otherwise it is JSON, with CORS for the allowed websites:
+
+```json
+{ "ok": true }
+```
+
+The answer is the same whether the address is new, waiting to confirm or already subscribed, so the form cannot be used to find out who is on the list. It only means an email is on its way if one is due; a failure to send it shows on the form in the dashboard.
+
+| Status | `error` | |
+| --- | --- | --- |
+| 400 | `invalid_email`, `turnstile_failed`, `invalid_request` | Check the fields |
+| 403 | `origin_not_allowed`, `turnstile_failed` | Not an allowed website, or Turnstile did not pass |
+| 404 | `not_found` | No such form |
+| 429 | `rate_limited` | Too many from this IP address |
+| 503 | `form_unavailable` | Switched off, or misconfigured: the dashboard says why |
+
 ## Webhooks
 
 Add a webhook on the domain's page: an `https://` URL and the events it wants. Mailroom POSTs JSON:

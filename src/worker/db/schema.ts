@@ -112,6 +112,9 @@ export const contact = sqliteTable(
     unsubscribed: integer('unsubscribed', { mode: 'boolean' }).notNull().default(false),
     // The secret in their unsubscribe link.
     token: text('token').notNull().unique(),
+    // When they last clicked the link in a confirmation email: the record of
+    // their consent. Empty for contacts added any other way.
+    confirmedAt: text('confirmed_at'),
     createdAt: text('created_at').notNull().default(now),
   },
   (t) => [uniqueIndex('contact_domain_email').on(t.domainId, t.email)],
@@ -141,6 +144,70 @@ export const contactSegment = sqliteTable(
       .references(() => segment.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.contactId, t.segmentId] }), index('contact_segment_segment').on(t.segmentId)],
+)
+
+// A sign-up form on an outside website: what its submissions may look like,
+// and which segment they join once confirmed.
+export const subscribeForm = sqliteTable(
+  'subscribe_form',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id')
+      .notNull()
+      .references(() => domain.id, { onDelete: 'cascade' }),
+    // In the form's address, /subscribe/<public id>; not a secret.
+    publicId: text('public_id').notNull().unique(),
+    name: text('name').notNull(),
+    // Without one (it was deleted) the form takes no submissions.
+    segmentId: integer('segment_id').references(() => segment.id, { onDelete: 'set null' }),
+    // The websites it may be on, e.g. https://example.com. Also the hostnames
+    // accepted from Turnstile.
+    allowedOrigins: text('allowed_origins', { mode: 'json' }).$type<string[]>().notNull(),
+    turnstileSiteKey: text('turnstile_site_key').notNull(),
+    // Encrypted with a key derived from ADMIN_PASSWORD (lib/crypto); never sent
+    // to the dashboard.
+    turnstileSecret: text('turnstile_secret').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    // Why the latest submission failed on our side, for the dashboard: visitors
+    // cannot be told, and would not know what to do about it.
+    lastError: text('last_error').notNull().default(''),
+    lastErrorAt: text('last_error_at'),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('subscribe_form_domain').on(t.domainId)],
+)
+
+// Someone who submitted a form and has not clicked the link in the
+// confirmation email. They are kept apart from contacts, so nothing can write
+// to an address nobody has confirmed. Confirming makes the contact and removes
+// this row; the cron removes the ones that expire.
+export const pendingSubscription = sqliteTable(
+  'pending_subscription',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id')
+      .notNull()
+      .references(() => domain.id, { onDelete: 'cascade' }),
+    formId: integer('form_id')
+      .notNull()
+      .references(() => subscribeForm.id, { onDelete: 'cascade' }),
+    // Bare and lowercase.
+    email: text('email').notNull(),
+    firstName: text('first_name').notNull().default(''),
+    lastName: text('last_name').notNull().default(''),
+    // SHA-256 of the secret in the confirmation link, hex.
+    tokenHash: text('token_hash').notNull().unique(),
+    // Who submitted it, to limit submissions per address.
+    ip: text('ip').notNull().default(''),
+    lastSentAt: text('last_sent_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('pending_subscription_email').on(t.domainId, t.email),
+    index('pending_subscription_form').on(t.formId),
+    index('pending_subscription_ip').on(t.ip, t.lastSentAt),
+    index('pending_subscription_expires').on(t.expiresAt),
+  ],
 )
 
 // draft -> queued (waiting for its time, or for the next cron run) ->
@@ -301,6 +368,7 @@ export type Mail = typeof mail.$inferSelect
 export type Mailbox = typeof mailbox.$inferSelect
 export type Contact = typeof contact.$inferSelect
 export type Segment = typeof segment.$inferSelect
+export type SubscribeForm = typeof subscribeForm.$inferSelect
 export type Broadcast = typeof broadcast.$inferSelect
 export type Template = typeof template.$inferSelect
 export type AiProvider = typeof aiProvider.$inferSelect

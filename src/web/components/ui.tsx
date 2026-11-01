@@ -1,8 +1,8 @@
 // Small shared pieces: layout, list rows, badges, confirm dialogs.
-import { ActionIcon, Badge, Box, Button, Center, Group, Loader, Paper, Select, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
+import { ActionIcon, Badge, Box, Button, Center, Code, CopyButton, Group, Loader, Paper, Select, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
-import { IconArrowLeft, IconArrowUpRight } from '@tabler/icons-react'
+import { IconArrowLeft, IconArrowUpRight, IconCheck, IconCopy } from '@tabler/icons-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { setDomain } from '../domain'
@@ -237,5 +237,24 @@ export function MetaList({ items }: { items: [string, ReactNode][] }) {
           </Text>,
         ])}
     </Box>
+  )
+}
+
+export function Copyable({ value, children }: { value: string; children?: ReactNode }) {
+  return (
+    <Group gap={4} wrap="nowrap" align="flex-start">
+      <Code block style={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        {children ?? value}
+      </Code>
+      <CopyButton value={value}>
+        {({ copied, copy }) => (
+          <Tooltip label={copied ? 'Copied' : 'Copy'}>
+            <ActionIcon variant="subtle" color={copied ? 'teal' : 'gray'} onClick={copy} aria-label="Copy">
+              {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </CopyButton>
+    </Group>
   )
 }

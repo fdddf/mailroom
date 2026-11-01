@@ -1,8 +1,9 @@
 import { createHmac } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { parseSender } from '../src/worker/lib/mailer'
+import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
 import { bareAddress, domainOf, fillVariables, isDomainName, parseAddressList } from '../src/worker/lib/text'
 
 describe('text', () => {
@@ -59,5 +60,63 @@ describe('keys and signatures', () => {
     const body = JSON.stringify({ id: '1', type: 'ping', data: {} })
     const expected = createHmac('sha256', 'whsec_test').update(`1700000000.${body}`).digest('hex')
     expect(await signWebhook('whsec_test', 1700000000, body)).toBe(expected)
+  })
+})
+
+describe('sign-up forms', () => {
+  const answer = (body: object) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))))
+  const options = { hostnames: ['example.com'], allowTestKeys: false }
+  const good = { success: true, action: 'subscribe', hostname: 'example.com' }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('takes only a website address as an origin', () => {
+    expect(normalizeOrigin('https://Example.com/')).toBe('https://example.com')
+    expect(normalizeOrigin('http://localhost:5173')).toBe('http://localhost:5173')
+    for (const bad of ['http://example.com', 'https://example.com/form', 'https://example.com?a=1', 'example.com', 'ftp://example.com']) expect(normalizeOrigin(bad)).toBeNull()
+  })
+
+  it('needs success, the action and an allowed hostname from Turnstile', async () => {
+    answer(good)
+    expect(await verifyTurnstile('s', 'token', options)).toBe('ok')
+    for (const bad of [{ ...good, success: false }, { ...good, action: 'login' }, { ...good, hostname: 'evil.test' }, { success: true }]) {
+      answer(bad)
+      expect(await verifyTurnstile('s', 'token', options)).toBe('refused')
+    }
+  })
+
+  it('fails closed', async () => {
+    const fetchMock = vi.fn(async () => new Response('<html>bad gateway</html>', { status: 502 }))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(console, 'error').mockImplementationOnce(() => {})
+    expect(await verifyTurnstile('s', 'token', options)).toBe('refused')
+    fetchMock.mockClear()
+    expect(await verifyTurnstile('s', 'x'.repeat(2049), options)).toBe('refused')
+    expect(await verifyTurnstile('s', undefined, options)).toBe('refused')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('takes test keys only from a local page', async () => {
+    answer({ success: true, hostname: 'example.com', metadata: { result_with_testing_key: true } })
+    expect(await verifyTurnstile('s', 'token', options)).toBe('refused')
+    expect(await verifyTurnstile('s', 'token', { ...options, allowTestKeys: true })).toBe('ok')
+  })
+
+  it('tells a bad secret from a bad token', async () => {
+    // As Cloudflare really answers: HTTP 400, with the reason in the JSON.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: false, 'error-codes': ['invalid-input-secret'] }), { status: 400 })))
+    expect(await verifyTurnstile('s', 'token', options)).toBe('bad_secret')
+    expect(await turnstileSecretAccepted('s')).toBe(false)
+    answer({ success: false, 'error-codes': ['invalid-input-response'] })
+    expect(await verifyTurnstile('s', 'token', options)).toBe('refused')
+    expect(await turnstileSecretAccepted('s')).toBe(true)
+  })
+
+  it('escapes the brand in the confirmation email', () => {
+    const mail = confirmationEmail('A <b> & Co', 'https://m.example.com/c/abc')
+    expect(mail.subject).toContain('A <b> & Co')
+    expect(mail.html).toContain('A &lt;b&gt; &amp; Co')
+    expect(mail.html).toContain('href="https://m.example.com/c/abc"')
+    expect(mail.text).toContain('https://m.example.com/c/abc')
   })
 })

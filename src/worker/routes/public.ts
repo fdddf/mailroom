@@ -8,12 +8,13 @@ import { contact, domain } from '../db/schema'
 import type { AppEnv } from '../env'
 import { IMAGE_TYPES, MEDIA_PREFIX } from './admin/media'
 
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 const TOKEN = /^[0-9a-f]{20,64}$/
 
-// The unsubscribe page: small, self-contained, no scripts.
-const page = (title: string, brand: string, body: string) => `<!doctype html>
+// The public pages (unsubscribing, confirming a subscription): small,
+// self-contained, no scripts.
+export const page = (title: string, brand: string, body: string) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>${escapeHtml(title)}${brand ? ` · ${escapeHtml(brand)}` : ''}</title>
 <style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;color:#141413;background:#faf9f5;margin:0;padding:15vh 24px;text-align:center}

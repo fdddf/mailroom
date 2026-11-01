@@ -6,6 +6,7 @@ A self-hosted mail center for your own domains, running entirely on your Cloudfl
 - **Sending**: compose and reply from any of your mailboxes through Cloudflare Email Sending, with delivery status (delivered, bounced, …).
 - **Broadcasts**: contacts and segments per domain, scheduled sends in batches, per-recipient unsubscribe links (including one-click, RFC 8058), automatic suppression of hard bounces and complaints.
 - **Editor**: plain text or HTML with a visual editor, an image library, templates, and an optional AI writing assistant (Claude or any OpenAI-compatible API).
+- **Sign-up forms**: paste a form into any website, with no server: Turnstile bot protection and double opt-in by email.
 - **Integration API**: per-domain API keys to send email and manage contacts from your other systems (`/v1`), and signed webhooks when mail arrives or a delivery status changes.
 
 Everything is one Worker: the dashboard is served as static assets, and there is no server to run.
