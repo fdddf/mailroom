@@ -2,6 +2,8 @@
 
 A self-hosted mail center for your own domains, running entirely on your Cloudflare account. One deployment handles as many domains as you like: each gets its own mailboxes, inbox, contacts, broadcasts, API keys and webhooks.
 
+![The Mailroom dashboard: unread mail, sending and subscriber counts, with a list of domains (demo data)](docs/screenshot.png)
+
 - **Inbox**: mail to your domains arrives through Cloudflare Email Routing and is kept in D1 (attachments in R2). Read, reply, archive, search.
 - **Sending**: compose and reply from any of your mailboxes through Cloudflare Email Sending, with delivery status (delivered, bounced, …).
 - **Broadcasts**: contacts and segments per domain, scheduled sends in batches, per-recipient unsubscribe links (including one-click, RFC 8058), automatic suppression of hard bounces and complaints.

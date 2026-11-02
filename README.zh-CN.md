@@ -2,6 +2,8 @@
 
 部署在你自己 Cloudflare 账号上的邮件中心。一次部署可以管理任意多个域名，每个域名有自己的邮箱地址、收件箱、联系人、群发、API key 和 webhook。完整英文文档见 [README.md](README.md)。
 
+![Mailroom 后台首页：未读邮件、发信和订阅者统计，以及域名列表（演示数据）](docs/screenshot.png)
+
 ## 能做什么
 
 - **收信**：经 Cloudflare Email Routing 收到的邮件存进 D1（附件进 R2），后台可读、回复、归档、搜索
