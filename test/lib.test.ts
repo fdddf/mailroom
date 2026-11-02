@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { parseSender } from '../src/worker/lib/mailer'
@@ -22,6 +23,42 @@ describe('text', () => {
 
   it('fills known placeholders only', () => {
     expect(fillVariables('Hi {{ first_name }}, {{other}}', { first_name: 'Ann' })).toBe('Hi Ann, {{other}}')
+  })
+})
+
+describe('bark', () => {
+  const env = { BARK_SERVER_URL: 'https://bark.test/', BARK_DEVICE_KEY: 'secretkey' } as Parameters<typeof sendBark>[0]
+  const push = { title: 't', body: 'b' }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('says which setting is missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await sendBark({ ...env, BARK_DEVICE_KEY: undefined }, push)).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'BARK_DEVICE_KEY')
+  })
+
+  it('posts to the device key', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const fetchMock = vi.fn(async () => new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await sendBark(env, push)).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith('https://bark.test/secretkey', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('logs a refusal and a network error without the key', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal('fetch', async () => new Response('no device secretkey', { status: 400 }))
+    expect(await sendBark(env, push)).toBe(false)
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('cannot reach https://bark.test/secretkey')
+    })
+    expect(await sendBark(env, push)).toBe(false)
+    expect(error).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(error.mock.calls)).not.toContain('secretkey')
   })
 })
 
