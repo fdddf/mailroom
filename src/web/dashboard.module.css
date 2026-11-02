@@ -82,6 +82,18 @@
   padding-top: 2px;
 }
 
+/* A sidebar entry on the icon rail: the icon alone, centred. */
+.railLink:global(.mantine-NavLink-root) {
+  justify-content: center;
+  padding-inline: 0;
+}
+.railLink :global(.mantine-NavLink-section) {
+  margin: 0;
+}
+.railLink :global(.mantine-NavLink-body) {
+  display: none;
+}
+
 /* Open pages, as tabs across the top of the content area. */
 .tabBar {
   position: sticky;

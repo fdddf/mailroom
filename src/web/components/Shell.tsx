@@ -1,10 +1,12 @@
-import { ActionIcon, AppShell, Badge, Burger, CloseButton, Group, NavLink, ScrollArea, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { ActionIcon, AppShell, Badge, Burger, CloseButton, Divider, Group, Indicator, NavLink, ScrollArea, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme, type NavLinkProps } from '@mantine/core'
+import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks'
 import {
   IconAddressBook,
   IconAt,
   IconInbox,
   IconLayoutDashboard,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconLogout,
   IconMoon,
   IconWorld,
@@ -91,8 +93,28 @@ const save = (tabs: OpenTab[]) => {
   }
 }
 
+// A sidebar entry. On the icon rail its name moves into a tooltip.
+function NavItem({ rail, label, tooltip = label, ...props }: NavLinkProps & { rail: boolean; label: string; tooltip?: string; component?: 'button'; onClick: () => void; 'aria-expanded'?: boolean }) {
+  return (
+    <Tooltip label={tooltip} position="right" disabled={!rail}>
+      <NavLink
+        {...props}
+        label={rail ? undefined : label}
+        aria-label={rail ? tooltip : undefined}
+        className={rail ? classes.railLink : undefined}
+        variant="light"
+        style={{ borderRadius: 'var(--mantine-radius-md)' }}
+      />
+    </Tooltip>
+  )
+}
+
 export function Shell() {
   const [opened, { toggle, close }] = useDisclosure()
+  const [collapsed, setCollapsed] = useLocalStorage({ key: 'mailroom_sidebar_collapsed', defaultValue: false, getInitialValueInEffect: false })
+  // Only beside the page: the phone's menu covers the screen and has room for names.
+  const wide = useMediaQuery('(min-width: 48em)', true, { getInitialValueInEffect: false })
+  const rail = collapsed && wide
   const { data: session } = useSession()
   const location = useLocation()
   const navigate = useNavigate()
@@ -177,7 +199,7 @@ export function Shell() {
   if (!section || !activeKey) return <Navigate to="/" replace />
 
   return (
-    <AppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !opened } }} padding="md">
+    <AppShell header={{ height: 56 }} navbar={{ width: collapsed ? 60 : 220, breakpoint: 'sm', collapsed: { mobile: !opened } }} padding="md">
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
@@ -217,26 +239,40 @@ export function Shell() {
       <AppShell.Navbar>
         {/* Scrolls on its own: the menu is taller than a short window. */}
         <AppShell.Section grow component={ScrollArea} p="xs">
-          {GROUPS.map((group) => (
+          {GROUPS.map((group, i) => (
             <Fragment key={group.label}>
-              <Text className={classes.navLabel}>{group.label}</Text>
+              {!rail ? <Text className={classes.navLabel}>{group.label}</Text> : i > 0 && <Divider my={6} />}
               {group.sections.map(({ to, label, icon: Icon, badge }) => {
                 const n = badge ? session?.counts[badge] : 0
                 return (
-                  <NavLink
+                  <NavItem
                     key={to}
+                    rail={rail}
                     label={label}
-                    leftSection={<Icon size={18} stroke={1.6} />}
-                    rightSection={n ? <Badge size="sm" circle={n < 10}>{n}</Badge> : null}
+                    tooltip={n ? `${label} (${n})` : label}
+                    leftSection={
+                      <Indicator disabled={!rail || !n} size={8} offset={1}>
+                        <Icon size={18} stroke={1.6} style={{ display: 'block' }} />
+                      </Indicator>
+                    }
+                    rightSection={!rail && n ? <Badge size="sm" circle={n < 10}>{n}</Badge> : null}
                     active={to === section.to}
                     onClick={() => show(to)}
-                    variant="light"
-                    style={{ borderRadius: 'var(--mantine-radius-md)' }}
                   />
                 )
               })}
             </Fragment>
           ))}
+        </AppShell.Section>
+        <AppShell.Section p="xs" visibleFrom="sm" style={{ borderTop: '1px solid var(--app-shell-border-color)' }}>
+          <NavItem
+            component="button"
+            rail={rail}
+            label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            leftSection={collapsed ? <IconLayoutSidebarLeftExpand size={18} stroke={1.6} /> : <IconLayoutSidebarLeftCollapse size={18} stroke={1.6} />}
+            onClick={() => setCollapsed((c) => !c)}
+          />
         </AppShell.Section>
       </AppShell.Navbar>
 
