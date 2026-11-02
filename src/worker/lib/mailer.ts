@@ -10,6 +10,20 @@ import { bareAddress, domainOf } from './text'
 
 export const emailConfigured = (env: Env) => Boolean(env.EMAIL)
 
+// R2 takes at most this many keys in one delete.
+const R2_DELETE_LIMIT = 1000
+
+// Remove attachments from R2. The email is already gone by now, so a failure
+// here leaves orphaned objects, not an error to show.
+export async function deleteAttachments(env: Pick<Env, 'BUCKET'>, keys: string[]) {
+  if (!env.BUCKET) return
+  try {
+    for (let i = 0; i < keys.length; i += R2_DELETE_LIMIT) await env.BUCKET.delete(keys.slice(i, i + R2_DELETE_LIMIT))
+  } catch (err) {
+    console.error('attachment cleanup failed', err)
+  }
+}
+
 // "Name <a@b.c>" or "a@b.c" -> its parts.
 export const parseSender = (from: string) => ({
   email: bareAddress(from),

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { nowIso } from '../../db'
 import { BODY_FORMATS, mail, mailbox } from '../../db/schema'
 import type { AppEnv } from '../../env'
-import { emailConfigured, sendMail } from '../../lib/mailer'
+import { deleteAttachments, emailConfigured, sendMail } from '../../lib/mailer'
 import { bareAddress, htmlToText, likePattern, parseAddressList, quote } from '../../lib/text'
 import { validate } from '../../lib/validate'
 import { PAGE_SIZE, domainRequired, idParam, inDomain, snippet, threadColumns } from './shared'
@@ -113,6 +113,19 @@ export const mailRoutes = new Hono<AppEnv>()
     },
   )
 
+  // Delete received emails picked in the list, with their attachments in R2.
+  // Only those in the picked domain go; ids already gone are skipped. The ids
+  // travel as one JSON parameter: D1 allows 100 bound parameters a query.
+  .post('/bulk-delete', validate('json', z.object({ ids: z.array(z.number().int().positive()).min(1, 'invalid_ids').max(5000, 'invalid_ids') })), async (c) => {
+    const { ids } = c.req.valid('json')
+    const rows = await c.var.db
+      .delete(mail)
+      .where(and(sql`${mail.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`, eq(mail.direction, 'in'), inDomain(c, mail.domainId)))
+      .returning({ attachments: mail.attachments })
+    await deleteAttachments(c.env, rows.flatMap((r) => r.attachments.map((a) => a.id)))
+    return c.json({ deleted: rows.length })
+  })
+
   // One email (either direction) plus recent back-and-forth with the same
   // person on the same domain. Opening an incoming email marks it read.
   .get('/:id', validate('param', idParam), async (c) => {
@@ -179,8 +192,7 @@ export const mailRoutes = new Hono<AppEnv>()
     const { id } = c.req.valid('param')
     const rows = await c.var.db.delete(mail).where(eq(mail.id, id)).returning({ id: mail.id, attachments: mail.attachments })
     if (!rows.length) return c.json({ error: 'not_found' }, 404)
-    const keys = rows[0]!.attachments.map((a) => a.id)
-    if (keys.length && c.env.BUCKET) await c.env.BUCKET.delete(keys).catch(() => {})
+    await deleteAttachments(c.env, rows[0]!.attachments.map((a) => a.id))
     return c.json({ ok: true })
   })
 

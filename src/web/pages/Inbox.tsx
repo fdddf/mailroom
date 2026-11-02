@@ -1,6 +1,6 @@
-import { Alert, Button, Group, SegmentedControl, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Button, Checkbox, Group, SegmentedControl, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
-import { IconPencil, IconSearch } from '@tabler/icons-react'
+import { IconPencil, IconSearch, IconTrash } from '@tabler/icons-react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -27,6 +27,7 @@ export function InboxPage() {
   const [query] = useDebouncedValue(q.trim(), 250)
   const { session, domainId, mailboxes } = useScope()
   const domainName = useDomainName()
+  const navigate = useNavigate()
   const mailbox = params.get('mailbox') ?? ''
   const setParam = (key: string, value: string) =>
     setParams((prev) => {
@@ -46,6 +47,34 @@ export function InboxPage() {
   const items = list.data?.pages.flatMap((p) => p.items) ?? []
   const suffix = params.toString() ? `?${params}` : ''
 
+  // Ticked emails, for deleting together. Only rows on screen count, so nothing
+  // the list no longer shows can be deleted unseen.
+  const [ticked, setTicked] = useState<ReadonlySet<number>>(new Set())
+  useEffect(() => setTicked(new Set()), [box, mailbox, query, domainId])
+  const picked = items.filter((m) => ticked.has(m.id)).map((m) => m.id)
+  const allPicked = items.length > 0 && picked.length === items.length
+  const tick = (id: number, on: boolean) =>
+    setTicked((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  const removeMany = useAction((ids: number[]) => call(api.mail['bulk-delete'].$post({ json: { ids } })), {
+    invalidate: [['mail-list'], ['stats']],
+    success: ({ deleted }) => `Deleted ${deleted} ${deleted === 1 ? 'email' : 'emails'}`,
+  })
+  const deletePicked = async () => {
+    const title = `Delete ${picked.length} ${picked.length === 1 ? 'email' : 'emails'}?`
+    if (!(await confirm(title, 'They and their attachments are removed for good.', { danger: true, label: 'Delete' }))) return
+    removeMany.mutate(picked, {
+      onSuccess: () => {
+        setTicked(new Set())
+        if (selected && picked.includes(selected)) navigate(`/mail${suffix}`)
+      },
+    })
+  }
+
   const listView = (
     <Stack gap="sm">
       <SegmentedControl
@@ -55,6 +84,21 @@ export function InboxPage() {
         data={BOXES.map(([value, label]) => ({ value, label: `${label} ${counts ? counts[value] : ''}` }))}
       />
       <TextInput leftSection={<IconSearch size={16} />} placeholder="Search sender, subject or body" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+      {items.length > 0 && (
+        <Group justify="space-between" wrap="nowrap" mih={26} px={14}>
+          <Checkbox
+            label={picked.length ? `${picked.length} selected` : list.hasNextPage ? `Select all ${items.length} loaded` : 'Select all'}
+            checked={allPicked}
+            indeterminate={picked.length > 0 && !allPicked}
+            onChange={() => setTicked(new Set(allPicked ? [] : items.map((m) => m.id)))}
+          />
+          {picked.length > 0 && (
+            <Button size="compact-sm" variant="light" color="red" leftSection={<IconTrash size={14} />} loading={removeMany.isPending} onClick={deletePicked}>
+              Delete
+            </Button>
+          )}
+        </Group>
+      )}
       <ListPanel empty="No mail" loading={list.isPending}>
         {items.map((m) => (
           <ListRow
@@ -69,6 +113,7 @@ export function InboxPage() {
               .filter(Boolean)
               .join(' · ')}
             snippet={m.snippet}
+            check={{ checked: ticked.has(m.id), onChange: (on) => tick(m.id, on), label: `Select email from ${m.fromAddr}` }}
           />
         ))}
       </ListPanel>

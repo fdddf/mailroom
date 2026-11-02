@@ -1,5 +1,5 @@
 // Small shared pieces: layout, list rows, badges, confirm dialogs.
-import { ActionIcon, Badge, Box, Button, Center, Code, CopyButton, Group, Loader, Paper, Select, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
+import { ActionIcon, Badge, Box, Button, Center, Checkbox, Code, CopyButton, Group, Loader, Paper, Select, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
 import { IconArrowLeft, IconArrowUpRight, IconCheck, IconCopy } from '@tabler/icons-react'
@@ -136,6 +136,7 @@ export function ListRow({
   meta,
   snippet,
   dot,
+  check,
 }: {
   to: string
   active?: boolean
@@ -145,9 +146,10 @@ export function ListRow({
   meta?: ReactNode
   snippet?: string | null
   dot?: string
+  check?: { checked: boolean; onChange: (checked: boolean) => void; label: string }
 }) {
   const tab = useTab()
-  return (
+  const link = (
     <UnstyledButton
       component={Link}
       to={to}
@@ -183,6 +185,15 @@ export function ListRow({
         </Text>
       )}
     </UnstyledButton>
+  )
+  if (!check) return link
+  return (
+    <div className={classes.checkRow}>
+      <label className={classes.check}>
+        <Checkbox aria-label={check.label} checked={check.checked} onChange={(e) => check.onChange(e.currentTarget.checked)} />
+      </label>
+      {link}
+    </div>
   )
 }
 

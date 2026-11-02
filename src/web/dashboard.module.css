@@ -15,6 +15,21 @@
 .row[data-active] { background: var(--mantine-primary-color-light); }
 .row[data-unread] .who { font-weight: 800; }
 
+/* A row with a checkbox: the checkbox sits beside the link, over its padding. */
+.checkRow {
+  position: relative;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.checkRow:last-child { border-bottom: 0; }
+.checkRow .row { padding-left: 44px; border-bottom: 0; }
+.check {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 10px 10px 14px 14px;
+  cursor: pointer;
+}
+
 .who {
   font-weight: 600;
   font-size: var(--mantine-font-size-sm);

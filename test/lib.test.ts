@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
-import { parseSender } from '../src/worker/lib/mailer'
+import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
 import { bareAddress, domainOf, fillVariables, isDomainName, parseAddressList } from '../src/worker/lib/text'
 
@@ -23,6 +23,30 @@ describe('text', () => {
 
   it('fills known placeholders only', () => {
     expect(fillVariables('Hi {{ first_name }}, {{other}}', { first_name: 'Ann' })).toBe('Hi Ann, {{other}}')
+  })
+})
+
+describe('deleteAttachments', () => {
+  const bucket = (del: (keys: string[]) => Promise<void>) => ({ BUCKET: { delete: del } }) as unknown as Parameters<typeof deleteAttachments>[0]
+
+  it('stays within what R2 takes in one delete', async () => {
+    const del = vi.fn(async (_keys: string[]) => {})
+    await deleteAttachments(bucket(del), Array.from({ length: 2001 }, (_, i) => `k${i}`))
+    expect(del.mock.calls.map(([keys]) => keys.length)).toEqual([1000, 1000, 1])
+  })
+
+  it('makes no call without keys or a bucket', async () => {
+    const del = vi.fn(async (_keys: string[]) => {})
+    await deleteAttachments(bucket(del), [])
+    expect(del).not.toHaveBeenCalled()
+    await expect(deleteAttachments({}, ['k'])).resolves.toBeUndefined()
+  })
+
+  it('logs a failure instead of throwing', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(deleteAttachments(bucket(() => Promise.reject(new Error('down'))), ['k'])).resolves.toBeUndefined()
+    expect(log).toHaveBeenCalledOnce()
+    log.mockRestore()
   })
 })
 
