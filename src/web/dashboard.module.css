@@ -102,10 +102,25 @@
   margin: calc(var(--mantine-spacing-md) * -1) calc(var(--mantine-spacing-md) * -1) var(--mantine-spacing-md);
   padding: 6px var(--mantine-spacing-md) 0;
   background: var(--app-canvas);
-  overflow-x: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .tabBar :global(.mantine-Tabs-list) {
+  flex: 1;
+  min-width: 0;
   flex-wrap: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+/* A tab that does not fit: out of the row, but still measurable. */
+.tabHidden {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+.tabMore {
+  flex-shrink: 0;
 }
 .tabBar :global(.mantine-Tabs-tab) {
   flex-shrink: 0;

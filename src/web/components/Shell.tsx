@@ -1,4 +1,4 @@
-import { ActionIcon, AppShell, Badge, Burger, CloseButton, Divider, Group, Indicator, NavLink, ScrollArea, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme, type NavLinkProps } from '@mantine/core'
+import { ActionIcon, AppShell, Badge, Burger, CloseButton, Divider, Group, Indicator, Menu, NavLink, ScrollArea, Select, Tabs, Text, Tooltip, useComputedColorScheme, useMantineColorScheme, type NavLinkProps } from '@mantine/core'
 import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks'
 import {
   IconAddressBook,
@@ -9,6 +9,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLogout,
+  IconMenu2,
   IconMoon,
   IconWorld,
   IconPencil,
@@ -21,7 +22,7 @@ import {
   IconTemplate,
 } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { api, call } from '../api'
 import { setDomain, useDomainId } from '../domain'
@@ -187,6 +188,49 @@ export function Shell() {
     setClosing(key)
     navigate(rest[Math.max(0, tabs.findIndex((t) => t.key === key) - 1)]?.at ?? '/')
   }
+  // Close several tabs at once (never all of them); `keep` is brought to the front.
+  const closeTabs = (keys: string[], keep: string) => {
+    const rest = tabs.filter((t) => !keys.includes(t.key))
+    if (!rest.length) return
+    update(rest)
+    if (!activeKey || !keys.includes(activeKey)) return
+    setClosing(activeKey)
+    navigate(rest.find((t) => t.key === keep)?.at ?? rest[0]!.at)
+  }
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
+  const tabBar = useRef<HTMLDivElement>(null)
+  // Tabs that do not fit sit in a menu at the end of the bar instead. Every tab
+  // stays in the DOM (the hidden ones out of flow) so each can be measured.
+  const [overflow, setOverflow] = useState<string[]>([])
+  useLayoutEffect(() => {
+    const bar = tabBar.current
+    if (!bar) return
+    const measure = () => {
+      const cs = getComputedStyle(bar)
+      const room = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      const widths = tabs.map((t) => bar.querySelector<HTMLElement>(`[data-tab-key="${CSS.escape(t.key)}"]`)?.offsetWidth ?? 0)
+      let hidden: string[] = []
+      if (widths.reduce((a, b) => a + b, 0) > room) {
+        // Room for the menu button; fill from the left, the tab in front always shown.
+        const avail = room - 44
+        const front = tabs.findIndex((t) => t.key === activeKey)
+        let used = widths[front] ?? 0
+        const shown = new Set<number>([front])
+        for (let i = 0; i < tabs.length; i++) {
+          if (i === front) continue
+          if (used + widths[i]! > avail) break
+          used += widths[i]!
+          shown.add(i)
+        }
+        hidden = tabs.filter((_, i) => !shown.has(i)).map((t) => t.key)
+      }
+      setOverflow((prev) => (prev.join('\n') === hidden.join('\n') ? prev : hidden))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [tabs, activeKey])
   const openSolo = (path: string, background = false) => {
     const home = sectionOf(path)
     if (!home || path === home.to) return
@@ -283,7 +327,7 @@ export function Shell() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Tabs value={activeKey} onChange={(key) => key && show(key)} className={classes.tabBar}>
+        <Tabs value={activeKey} onChange={(key) => key && show(key)} className={classes.tabBar} ref={tabBar}>
           <Tabs.List>
             {tabs.map((tab) => {
               const { label, icon: Icon } = sectionOf(tab.key)!
@@ -293,6 +337,12 @@ export function Shell() {
                   key={tab.key}
                   value={tab.key}
                   title={title}
+                  data-tab-key={tab.key}
+                  className={overflow.includes(tab.key) ? classes.tabHidden : undefined}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setMenu({ key: tab.key, x: e.clientX, y: e.clientY })
+                  }}
                   leftSection={<Icon size={16} stroke={1.6} />}
                   rightSection={
                     tabs.length > 1 && (
@@ -313,7 +363,73 @@ export function Shell() {
               )
             })}
           </Tabs.List>
+          {overflow.length > 0 && (
+            <Menu position="bottom-end" withinPortal>
+              <Menu.Target>
+                <Tooltip label={`${overflow.length} more`} openDelay={400}>
+                  <ActionIcon variant="subtle" color="gray" className={classes.tabMore} aria-label="More tabs">
+                    <IconMenu2 size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {tabs
+                  .filter((t) => overflow.includes(t.key))
+                  .map((tab) => {
+                    const { label, icon: Icon } = sectionOf(tab.key)!
+                    const title = tab.solo ? tab.title || `${label} #${tab.key.split('/').pop()}` : label
+                    return (
+                      <Menu.Item
+                        key={tab.key}
+                        leftSection={<Icon size={16} stroke={1.6} />}
+                        rightSection={
+                          <CloseButton
+                            component="span"
+                            size="xs"
+                            aria-label={`Close ${title}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              closeTab(tab.key)
+                            }}
+                          />
+                        }
+                        onClick={() => show(tab.key)}
+                      >
+                        <span className={classes.tabTitle}>{title}</span>
+                      </Menu.Item>
+                    )
+                  })}
+              </Menu.Dropdown>
+            </Menu>
+          )}
         </Tabs>
+        <Menu opened={menu !== null} onChange={(o) => !o && setMenu(null)} position="bottom-start" offset={0} withinPortal>
+          <Menu.Target>
+            <div style={{ position: 'fixed', left: menu?.x ?? 0, top: menu?.y ?? 0, width: 0, height: 0 }} />
+          </Menu.Target>
+          <Menu.Dropdown>
+            {(() => {
+              const at = menu ? tabs.findIndex((t) => t.key === menu.key) : -1
+              const key = menu?.key ?? ''
+              return (
+                <>
+                  <Menu.Item disabled={tabs.length < 2} onClick={() => closeTabs([key], key)}>
+                    Close
+                  </Menu.Item>
+                  <Menu.Item disabled={tabs.length < 2} onClick={() => closeTabs(tabs.filter((t) => t.key !== key).map((t) => t.key), key)}>
+                    Close Others
+                  </Menu.Item>
+                  <Menu.Item disabled={at < 0 || at === tabs.length - 1} onClick={() => closeTabs(tabs.slice(at + 1).map((t) => t.key), key)}>
+                    Close to the Right
+                  </Menu.Item>
+                  <Menu.Item disabled={at <= 0} onClick={() => closeTabs(tabs.slice(0, at).map((t) => t.key), key)}>
+                    Close to the Left
+                  </Menu.Item>
+                </>
+              )
+            })()}
+          </Menu.Dropdown>
+        </Menu>
 
         {/* Every open tab stays mounted, each at its own URL, so a draft or a
             scroll position is still there when you come back to it. */}
