@@ -23,7 +23,7 @@ import {
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconCopy, IconDownload, IconFile, IconPaperclip, IconPencil, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { ApiError, api, call, errorText, uploadFile, type LibraryFile } from '../api'
 import { fmt, useAction, useDomainName, useScope } from '../hooks'
 import { confirm } from './ui'
@@ -417,35 +417,73 @@ export function Attachments({ value, onChange, compact = false }: { value: Picke
   )
 }
 
-// What a signature looks like as text, for its preview.
-const signatureText = (s: { format: 'text' | 'html'; body: string }) =>
-  s.format === 'html' ? s.body.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim() : s.body.trim()
-
-// Which signature goes under the email; null for none.
-export function SignatureSelect({ value, onChange, size, preview = true }: { value: number | null; onChange: (id: number | null) => void; size?: 'xs' | 'sm'; preview?: boolean }) {
-  const list = useSignatures()
-  const items = list.data?.items ?? []
-  const picked = items.find((s) => s.id === value)
+// Which signature is written into the message; null for none.
+export function SignatureSelect({ value, onChange }: { value: number | null; onChange: (id: number | null) => void }) {
+  const items = useSignatures().data?.items ?? []
   if (!items.length && value === null) return null
   return (
-    <Stack gap={4}>
-      <Select
-        label={size === 'xs' ? undefined : 'Signature'}
-        aria-label="Signature"
-        size={size}
-        w={size === 'xs' ? 200 : undefined}
-        data={[{ value: '', label: 'No signature' }, ...items.map((s) => ({ value: String(s.id), label: s.name }))]}
-        value={value ? String(value) : ''}
-        onChange={(v) => onChange(v ? Number(v) : null)}
-        allowDeselect={false}
-      />
-      {preview && picked && (
-        <Text component="pre" size="xs" c="dimmed" className={classes.signaturePreview}>
-          {`-- \n${signatureText(picked)}`}
-        </Text>
-      )}
-    </Stack>
+    <Select
+      size="xs"
+      w={200}
+      aria-label="Signature"
+      data={[{ value: '', label: 'No signature' }, ...items.map((s) => ({ value: String(s.id), label: s.name }))]}
+      value={value ? String(value) : ''}
+      onChange={(v) => onChange(v ? Number(v) : null)}
+      allowDeselect={false}
+    />
   )
+}
+
+const escapeText = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const textAsHtml = (t: string) => escapeText(t).replace(/\r?\n/g, '<br>')
+
+type Sig = { id: number; format: 'text' | 'html'; body: string }
+type Written = { body: string; format: 'text' | 'html' }
+
+// Put a signature at the end of a message, taking out the one this put there
+// before (if it is still there untouched). A signature in the other format
+// turns the message into HTML.
+function swapSignature(msg: Written, previous: string | null, sig: Sig | null): Written & { block: string | null } {
+  let body = msg.body
+  if (previous && body.endsWith(previous)) body = body.slice(0, -previous.length)
+  if (!sig || !sig.body.trim()) return { body, format: msg.format, block: null }
+  if (msg.format === 'text' && sig.format === 'text') {
+    const block = `\n\n${sig.body.trim()}`
+    return { body: body.trimEnd() + block, format: 'text', block }
+  }
+  // HTML message, or an HTML signature: the whole thing is HTML.
+  const html = msg.format === 'html' ? body : body.trim() ? `<div>${textAsHtml(body.trimEnd())}</div>` : ''
+  const block = `<br>\n${sig.format === 'html' ? sig.body.trim() : textAsHtml(sig.body.trim())}`
+  return { body: html + block, format: 'html', block }
+}
+
+// A signature works as in a mail app: choosing one writes it into the message
+// (where it can be edited), choosing another swaps it, none takes it out.
+// `place` gives a fresh message (empty, or a template) with the signature in.
+export function useSignatureInBody(signatureId: number | null, msg: Written, apply: (msg: Written) => void) {
+  const list = useSignatures()
+  const sig = signatureId ? (list.data?.items.find((s) => s.id === signatureId) ?? null) : null
+  const ready = !signatureId || !!list.data
+  const latest = useRef(msg)
+  latest.current = msg
+  const block = useRef<string | null>(null)
+  const key = sig ? `${sig.id}:${sig.format}:${sig.body}` : ''
+  useEffect(() => {
+    if (!ready) return
+    const out = swapSignature(latest.current, block.current, sig)
+    block.current = out.block
+    if (out.body !== latest.current.body || out.format !== latest.current.format) apply({ body: out.body, format: out.format })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ready])
+  return {
+    place(next: Written): Written {
+      const out = swapSignature(next, null, sig)
+      block.current = out.block
+      return { body: out.body, format: out.format }
+    },
+    // Nothing written besides the signature.
+    isBlank: (body: string) => !body.trim() || (!!block.current && body.trim() === block.current.trim()),
+  }
 }
 
 // The signature a mailbox starts with.

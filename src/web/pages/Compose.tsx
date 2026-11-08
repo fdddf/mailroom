@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { api, call } from '../api'
 import { useAction, useScope } from '../hooks'
 import { AiAssist, BodyEditor, TemplatePicker, type BodyFormat } from '../components/editor'
-import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, type PickedFile } from '../components/files'
+import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, useSignatureInBody, type PickedFile } from '../components/files'
 import { FromSelect, initialSender } from '../components/mail'
 import { PageHeader } from '../components/ui'
 
@@ -27,6 +27,10 @@ export function ComposePage() {
   // Each mailbox starts with its own signature.
   const fromSignature = mailboxSignature(mailboxes, from)
   useEffect(() => setSignatureId(fromSignature), [from, fromSignature])
+  const sigBody = useSignatureInBody(signatureId, { body: form.message, format }, (m) => {
+    setFormat(m.format)
+    setForm((f) => ({ ...f, message: m.body }))
+  })
   const fits = attachmentsFit(files, session?.attachLimit ?? Infinity)
   const set = (key: keyof typeof form) => (value: string | number) => setForm((f) => ({ ...f, [key]: String(value) }))
 
@@ -34,7 +38,7 @@ export function ComposePage() {
     () =>
       call(
         api.mail.send.$post({
-          json: { from: from || undefined, to: form.to, cc: form.cc, subject: form.subject, message: form.message, format, signatureId, attachments: toPicks(files) },
+          json: { from: from || undefined, to: form.to, cc: form.cc, subject: form.subject, message: form.message, format, attachments: toPicks(files) },
         }),
       ),
     { invalidate: [['sent-list'], ['stats']], success: 'Sent' },
@@ -45,7 +49,9 @@ export function ComposePage() {
     const result = await send.mutateAsync().catch(() => null)
     if (result) {
       setSentId(result.mailId)
-      setForm({ ...blank, to: '', subject: '' })
+      const fresh = sigBody.place({ body: '', format })
+      setFormat(fresh.format)
+      setForm({ ...blank, to: '', subject: '', message: fresh.body })
       setFiles([])
     }
   }
@@ -82,23 +88,24 @@ export function ComposePage() {
               <>
                 <TemplatePicker
                   onApply={(t) => {
-                    setFormat(t.format)
-                    setForm((f) => ({ ...f, subject: t.subject || f.subject, message: t.body }))
+                    const m = sigBody.place({ body: t.body, format: t.format })
+                    setFormat(m.format)
+                    setForm((f) => ({ ...f, subject: t.subject || f.subject, message: m.body }))
                   }}
                 />
+                <SignatureSelect value={signatureId} onChange={setSignatureId} />
                 <AiAssist
                   purpose="email"
                   format={format}
                   current={{ subject: form.subject, body: form.message }}
-                  onApply={(d) => setForm((f) => ({ ...f, subject: d.subject || f.subject, message: d.body }))}
+                  onApply={(d) => setForm((f) => ({ ...f, subject: d.subject || f.subject, message: sigBody.place({ body: d.body, format }).body }))}
                 />
               </>
             }
           />
           <Attachments value={files} onChange={setFiles} />
-          <SignatureSelect value={signatureId} onChange={setSignatureId} />
           <Group>
-            <Button type="submit" loading={send.isPending} disabled={!session?.canEmail || !form.message.trim() || !fits}>
+            <Button type="submit" loading={send.isPending} disabled={!session?.canEmail || sigBody.isBlank(form.message) || !fits}>
               Send
             </Button>
             <Text size="xs" c="dimmed">

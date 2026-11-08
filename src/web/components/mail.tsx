@@ -2,13 +2,12 @@
 // rendered as text by React; HTML bodies only ever go into a sandboxed iframe
 // (no allow-scripts, no allow-same-origin), with remote images blocked until
 // asked for.
-import { Anchor, Badge, Box, Button, Group, Paper, Select, Stack, Text, Textarea } from '@mantine/core'
-import { getHotkeyHandler } from '@mantine/hooks'
+import { Anchor, Badge, Box, Button, Group, Paper, Select, Stack, Text } from '@mantine/core'
 import { IconLink, IconPaperclip } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { fmtFull, useScope, type Session } from '../hooks'
-import { AiAssist } from './editor'
-import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, type PickedFile } from './files'
+import { AiAssist, BodyEditor, type BodyFormat } from './editor'
+import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, useSignatureInBody, type PickedFile } from './files'
 import { DeliveryBadge } from './ui'
 import classes from '../dashboard.module.css'
 
@@ -179,7 +178,7 @@ export const initialSender = (mailboxes: Mailboxes, preferred?: string | null) =
   mailboxes.find((m) => m.address === preferred)?.address ?? mailboxes.find((m) => m.isDefault)?.address ?? mailboxes[0]?.address ?? ''
 
 // What a reply box sends.
-export type ReplyDraft = { message: string; from: string | undefined; signatureId: number | null; attachments: { fileId: number; link: boolean }[] }
+export type ReplyDraft = { message: string; format: BodyFormat; from: string | undefined; attachments: { fileId: number; link: boolean }[] }
 
 // Reply box: first action is the default (⌘/Ctrl+Enter). The sender can be
 // changed when there is more than one mailbox; the signature follows it.
@@ -201,19 +200,26 @@ export function Composer({
 }) {
   const { session } = useScope()
   const [text, setText] = useState('')
+  const [format, setFormat] = useState<BodyFormat>('text')
   const [from, setFrom] = useState(() => initialSender(mailboxes, defaultFrom))
   const [files, setFiles] = useState<PickedFile[]>([])
   const fromSignature = mailboxSignature(mailboxes, from)
   const [signatureId, setSignatureId] = useState<number | null>(fromSignature)
   useEffect(() => setSignatureId(fromSignature), [from, fromSignature])
+  const sigBody = useSignatureInBody(signatureId, { body: text, format }, (m) => {
+    setFormat(m.format)
+    setText(m.body)
+  })
   const fits = attachmentsFit(files, session?.attachLimit ?? Infinity)
   const [busy, setBusy] = useState(-1)
   const run = async (i: number) => {
-    if (!text.trim() || busy >= 0 || !fits) return
+    if (sigBody.isBlank(text) || busy >= 0 || !fits) return
     setBusy(i)
     try {
-      await actions[i].send({ message: text, from: from || undefined, signatureId, attachments: toPicks(files) })
-      setText('')
+      await actions[i].send({ message: text, format, from: from || undefined, attachments: toPicks(files) })
+      const fresh = sigBody.place({ body: '', format: 'text' })
+      setFormat(fresh.format)
+      setText(fresh.body)
       setFiles([])
     } catch {
       // Shown by the mutation's error toast.
@@ -227,39 +233,38 @@ export function Composer({
         <Text fw={600} size="sm">
           {heading}
         </Text>
-        {mailboxes.length > 1 ? (
-          <Group gap={6}>
-            <Text size="xs" c="dimmed">
-              From
-            </Text>
-            <FromSelect mailboxes={mailboxes} value={from} onChange={setFrom} label={null} size="xs" w={260} />
-          </Group>
-        ) : (
-          from && (
-            <Text size="xs" c="dimmed">
-              From {from}
-            </Text>
-          )
-        )}
+        <Group gap="xs">
+          {mailboxes.length > 1 ? (
+            <Group gap={6}>
+              <Text size="xs" c="dimmed">
+                From
+              </Text>
+              <FromSelect mailboxes={mailboxes} value={from} onChange={setFrom} label={null} size="xs" w={260} />
+            </Group>
+          ) : (
+            from && (
+              <Text size="xs" c="dimmed">
+                From {from}
+              </Text>
+            )
+          )}
+        </Group>
       </Group>
-      <Textarea
+      <BodyEditor
+        label="Message"
+        format={format}
+        onFormat={setFormat}
         value={text}
-        onChange={(e) => setText(e.currentTarget.value)}
-        placeholder={placeholder}
-        autosize
+        onChange={setText}
         minRows={5}
-        maxRows={16}
-        onKeyDown={getHotkeyHandler([['mod+Enter', () => run(0)]])}
+        placeholder={placeholder}
+        onSubmit={() => run(0)}
+        tools={<SignatureSelect value={signatureId} onChange={setSignatureId} />}
       />
-      <Group justify="space-between" align="flex-start" gap="xs">
-        <Box style={{ flex: 1, minWidth: 240 }}>
-          <Attachments value={files} onChange={setFiles} compact />
-        </Box>
-        <SignatureSelect value={signatureId} onChange={setSignatureId} size="xs" preview={false} />
-      </Group>
+      <Attachments value={files} onChange={setFiles} compact />
       <Group gap="xs">
         {actions.map((a, i) => (
-          <Button key={a.label} variant={a.primary ? 'filled' : 'default'} loading={busy === i} disabled={!text.trim() || !fits || (busy >= 0 && busy !== i)} onClick={() => run(i)}>
+          <Button key={a.label} variant={a.primary ? 'filled' : 'default'} loading={busy === i} disabled={sigBody.isBlank(text) || !fits || (busy >= 0 && busy !== i)} onClick={() => run(i)}>
             {a.label}
           </Button>
         ))}
@@ -267,7 +272,7 @@ export function Composer({
           ⌘/Ctrl + Enter to send
         </Text>
         <Box ml="auto">
-          <AiAssist purpose="reply" format="text" size="sm" current={{ body: text }} context={aiContext} onApply={(d) => setText(d.body)} />
+          <AiAssist purpose="reply" format={format} size="sm" current={{ body: text }} context={aiContext} onApply={(d) => setText(sigBody.place({ body: d.body, format }).body)} />
         </Box>
       </Group>
     </Stack>

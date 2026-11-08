@@ -201,43 +201,23 @@ describe('composeBody', () => {
     expect(composeBody({ message: { format: 'text', body: ' Hi there \n' } })).toEqual({ text: 'Hi there' })
   })
 
-  it('adds links, then the signature, then the quote, in plain text', () => {
+  it('adds links, then the quote, in plain text', () => {
     const { text, html } = composeBody({
       message: { format: 'text', body: 'Here it is.' },
       links: [link],
-      signature: { format: 'text', body: 'Ann\nExample Ltd' },
       quote: { attribution: 'On 2026-11-01, Bob wrote:', text: 'Send it?\nThanks' },
     })
     expect(html).toBeUndefined()
     expect(text).toBe(
-      'Here it is.\n\nFiles:\n- video.mp4 (3.0 GB): https://m.example.com/f/abc/video.mp4\n\n-- \nAnn\nExample Ltd\n\nOn 2026-11-01, Bob wrote:\n> Send it?\n> Thanks',
+      'Here it is.\n\nFiles:\n- video.mp4 (3.0 GB): https://m.example.com/f/abc/video.mp4\n\nOn 2026-11-01, Bob wrote:\n> Send it?\n> Thanks',
     )
   })
 
-  it('makes HTML when the signature is HTML, escaping the plain parts', () => {
-    const { text, html } = composeBody({ message: { format: 'text', body: 'a < b' }, signature: { format: 'html', body: '<b>Ann</b>' } })
-    expect(html).toContain('a &lt; b')
-    expect(html).toContain('<b>Ann</b>')
-    // One wrapper around message and signature alike.
-    expect(html!.trim().endsWith('</div>\n</div>')).toBe(true)
-    expect(html!.match(/max-width:600px/g)).toHaveLength(1)
-    expect(text).toBe('a < b\n\n-- \nAnn')
-  })
-
-  it('adds escaped links and a text signature to HTML', () => {
-    const { text, html } = composeBody({
-      message: { format: 'html', body: '<p>Hello</p>' },
-      links: [{ ...link, name: '<x>.zip' }],
-      signature: { format: 'text', body: 'Ann & co' },
-    })
+  it('escapes a plain message inside HTML links', () => {
+    const { text, html } = composeBody({ message: { format: 'html', body: '<p>Hello</p>' }, links: [{ ...link, name: '<x>.zip' }] })
     expect(html!.startsWith('<p>Hello</p>')).toBe(true)
     expect(html).toContain('&lt;x&gt;.zip')
-    expect(html).toContain('Ann &amp; co')
     expect(text).toContain('- <x>.zip (3.0 GB): https://m.example.com/f/abc/video.mp4')
-  })
-
-  it('skips an empty signature', () => {
-    expect(composeBody({ message: { format: 'text', body: 'Hi' }, signature: { format: 'html', body: '  ' } })).toEqual({ text: 'Hi' })
   })
 })
 

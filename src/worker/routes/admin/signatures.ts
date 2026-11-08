@@ -60,11 +60,3 @@ export const signatureRoutes = new Hono<AppEnv>()
     await db.batch([db.update(mailbox).set({ signatureId: null }).where(eq(mailbox.signatureId, id)), db.delete(signature).where(eq(signature.id, id))])
     return c.json({ ok: true })
   })
-
-// The signature an email asked for: null for none, undefined when that id is
-// not (or no longer) one.
-export const signaturePick = z.number().int().positive().nullable().default(null)
-export async function findSignature(db: Db, id: number | null) {
-  if (id === null) return null
-  return db.query.signature.findFirst({ columns: { format: true, body: true }, where: eq(signature.id, id) })
-}

@@ -219,13 +219,3 @@
 .thumb[data-pick]:hover {
   box-shadow: inset 0 0 0 2px var(--mantine-primary-color-filled);
 }
-.signaturePreview {
-  margin: 0;
-  padding: 6px 10px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: inherit;
-  border-left: 2px solid var(--mantine-color-default-border);
-  max-height: 120px;
-  overflow: auto;
-}

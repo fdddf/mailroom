@@ -26,6 +26,7 @@ export function BodyEditor({
   value,
   onChange,
   minRows = 10,
+  placeholder,
   tools,
   onSubmit,
 }: {
@@ -36,6 +37,7 @@ export function BodyEditor({
   value: string
   onChange: (value: string) => void
   minRows?: number
+  placeholder?: string
   // Buttons shown beside the format switch (template picker, AI).
   tools?: ReactNode
   onSubmit?: () => void
@@ -89,6 +91,7 @@ export function BodyEditor({
       ) : (
         <Textarea
           aria-label={label}
+          placeholder={placeholder}
           autosize
           minRows={minRows}
           maxRows={32}

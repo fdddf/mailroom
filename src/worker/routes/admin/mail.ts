@@ -11,7 +11,6 @@ import { bareAddress, likePattern, parseAddressList } from '../../lib/text'
 import { validate } from '../../lib/validate'
 import { filePicks, prepareFiles } from './files'
 import { PAGE_SIZE, domainRequired, idParam, inDomain, snippet, threadColumns } from './shared'
-import { findSignature, signaturePick } from './signatures'
 
 const listQuery = z.object({
   box: z.enum(['inbox', 'unread', 'archived', 'all']).default('inbox'),
@@ -85,8 +84,7 @@ export const mailRoutes = new Hono<AppEnv>()
   // A new email to anyone, from one of our mailboxes (the picked domain's
   // default when `from` is left out); `to`/`cc` are comma-separated.
   // `message` is plain text, or HTML (a text version is made from it for
-  // clients that prefer one). The signature and the files' download links
-  // are added under it; the other files are attached.
+  // clients that prefer one). The files' download links are added under it; the other files are attached.
   .post(
     '/send',
     validate(
@@ -98,17 +96,14 @@ export const mailRoutes = new Hono<AppEnv>()
         subject: z.string().trim().min(1, 'invalid_subject').max(300, 'invalid_subject'),
         message: z.string().trim().min(1, 'invalid_message').max(200000, 'invalid_message'),
         format: z.enum(BODY_FORMATS).default('text'),
-        signatureId: signaturePick,
         attachments: filePicks,
       }),
     ),
     async (c) => {
       if (!emailConfigured(c.env)) return c.json({ error: 'email_not_configured' }, 503)
-      const { from, to, cc, subject, message, format, signatureId, attachments } = c.req.valid('json')
+      const { from, to, cc, subject, message, format, attachments } = c.req.valid('json')
       if (!from && !c.var.domain) return domainRequired(c)
       const db = c.var.db
-      const signature = await findSignature(db, signatureId)
-      if (signature === undefined) return c.json({ error: 'unknown_signature' }, 400)
       const files = await prepareFiles(c.env, db, publicBase(c.env, c.req.url), attachments)
       if (!files.ok) return c.json({ error: files.error }, files.status)
       const sent = await sendMail(c.env, db, {
@@ -117,7 +112,7 @@ export const mailRoutes = new Hono<AppEnv>()
         to,
         cc,
         subject,
-        ...composeBody({ message: { format, body: message }, links: files.links, signature }),
+        ...composeBody({ message: { format, body: message }, links: files.links }),
         files: files.files,
         embedImages: true,
         source: 'dashboard',
@@ -249,7 +244,7 @@ export const mailRoutes = new Hono<AppEnv>()
 
   // Answer an incoming email: to its Reply-To (or sender), from the mailbox
   // it arrived at unless `from` says otherwise, threaded with
-  // In-Reply-To/References, quoting the original under the signature.
+  // In-Reply-To/References, quoting the original under it.
   .post(
     '/:id/reply',
     validate('param', idParam),
@@ -257,21 +252,19 @@ export const mailRoutes = new Hono<AppEnv>()
       'json',
       z.object({
         message: z.string().trim().min(1, 'empty_reply').max(20000, 'too_long'),
+        format: z.enum(BODY_FORMATS).default('text'),
         archive: z.boolean().default(false),
         from: sender,
-        signatureId: signaturePick,
         attachments: filePicks,
       }),
     ),
     async (c) => {
       if (!emailConfigured(c.env)) return c.json({ error: 'email_not_configured' }, 503)
       const { id } = c.req.valid('param')
-      const { message, archive, from, signatureId, attachments } = c.req.valid('json')
+      const { message, format, archive, from, attachments } = c.req.valid('json')
       const db = c.var.db
       const original = await db.query.mail.findFirst({ where: and(eq(mail.id, id), eq(mail.direction, 'in')) })
       if (!original) return c.json({ error: 'not_found' }, 404)
-      const signature = await findSignature(db, signatureId)
-      if (signature === undefined) return c.json({ error: 'unknown_signature' }, 400)
       const files = await prepareFiles(c.env, db, publicBase(c.env, c.req.url), attachments)
       if (!files.ok) return c.json({ error: files.error }, files.status)
 
@@ -284,9 +277,8 @@ export const mailRoutes = new Hono<AppEnv>()
         to: [bareAddress(original.replyTo || original.fromAddr)],
         subject,
         ...composeBody({
-          message: { format: 'text', body: message },
+          message: { format, body: message },
           links: files.links,
-          signature,
           quote: { attribution: `On ${original.createdAt.slice(0, 10)}, ${original.fromAddr} wrote:`, text: original.text ?? '' },
         }),
         files: files.files,
