@@ -10,7 +10,7 @@ import { useSignatures } from '../components/files'
 import { useTab, useTabTitle } from '../components/tabs'
 import { ListPanel, ListRow, MasterDetail, PageHeader, confirm } from '../components/ui'
 
-// Signatures, added under emails written in Compose and replies. A mailbox
+// Signatures, written into the message in Compose and replies. A mailbox
 // can start with one (see Mailboxes).
 export function SignaturesPage() {
   const { id } = useParams()
@@ -106,7 +106,7 @@ function Editor({ id, initial }: { id: string | null; initial?: { name: string; 
       />
       <BodyEditor
         label="Signature"
-        description="Goes under the message, after a “-- ” line in the plain-text version. An HTML signature makes the email HTML; a logo from the image library is embedded in the email, so it shows even where remote images are blocked."
+        description="Written into the end of the message when picked, where it can still be edited. An HTML signature makes the email HTML; a logo from the image library is embedded in the email, so it shows even where remote images are blocked."
         format={form.format}
         onFormat={(f) => set('format', f)}
         value={form.body}
