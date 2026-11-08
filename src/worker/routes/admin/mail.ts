@@ -130,8 +130,8 @@ export const mailRoutes = new Hono<AppEnv>()
     const rows = await c.var.db
       .delete(mail)
       .where(and(sql`${mail.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`, eq(mail.direction, 'in'), inDomain(c, mail.domainId)))
-      .returning({ attachments: mail.attachments })
-    await deleteAttachments(c.env, rows.flatMap((r) => r.attachments.map((a) => a.id)))
+      .returning({ attachments: mail.attachments, rawKey: mail.rawKey })
+    await deleteAttachments(c.env, rows.flatMap((r) => [...r.attachments.map((a) => a.id), ...(r.rawKey ? [r.rawKey] : [])]))
     return c.json({ deleted: rows.length })
   })
 
@@ -199,9 +199,9 @@ export const mailRoutes = new Hono<AppEnv>()
   // Its attachments in R2 go too.
   .delete('/:id', validate('param', idParam), async (c) => {
     const { id } = c.req.valid('param')
-    const rows = await c.var.db.delete(mail).where(eq(mail.id, id)).returning({ id: mail.id, attachments: mail.attachments })
+    const rows = await c.var.db.delete(mail).where(eq(mail.id, id)).returning({ id: mail.id, attachments: mail.attachments, rawKey: mail.rawKey })
     if (!rows.length) return c.json({ error: 'not_found' }, 404)
-    await deleteAttachments(c.env, rows[0]!.attachments.map((a) => a.id))
+    await deleteAttachments(c.env, [...rows[0]!.attachments.map((a) => a.id), ...(rows[0]!.rawKey ? [rows[0]!.rawKey] : [])])
     return c.json({ ok: true })
   })
 
@@ -220,6 +220,22 @@ export const mailRoutes = new Hono<AppEnv>()
       'Content-Security-Policy': `default-src 'none'; img-src ${images}; style-src 'unsafe-inline'; font-src data:; sandbox allow-popups allow-popups-to-escape-sandbox`,
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
+    })
+  })
+
+  // The message as it arrived (headers and all), shown as plain text. Mail
+  // received before this was kept has none.
+  .get('/:id/raw', validate('param', idParam), async (c) => {
+    const { id } = c.req.valid('param')
+    const row = await c.var.db.query.mail.findFirst({ columns: { rawKey: true }, where: eq(mail.id, id) })
+    if (!row?.rawKey) return c.text('The source of this email was not kept.', 404)
+    const object = await c.env.BUCKET?.get(row.rawKey)
+    if (!object) return c.text('The source of this email is unavailable.', 424)
+    return c.body(object.body as unknown as ReadableStream, 200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
     })
   })
 

@@ -12,17 +12,18 @@
 //                unsubscribe contacts that hard-bounce or complain.
 
 import type { ExecutionContext, ForwardableEmailMessage, MessageBatch } from '@cloudflare/workers-types'
-import { eq } from 'drizzle-orm'
+import { eq, isNull, or, sql } from 'drizzle-orm'
 import PostalMime, { type Address } from 'postal-mime'
 import app from './app'
 import { getDb } from './db'
-import { domain, mailbox, type Attachment } from './db/schema'
+import { blockRule, domain, mailbox, type Attachment } from './db/schema'
 import type { Env } from './env'
 import { sendBark } from './lib/bark'
 import { processBroadcasts, suppressContact } from './lib/broadcast'
 import { purgeStaleUploads } from './lib/files'
 import { purgeExpiredSubscriptions } from './lib/subscribe'
 import { deliver, recordDeliveryStatus, storeInbound } from './lib/mailer'
+import { findBlockRule } from './lib/spam'
 import { bareAddress, domainOf } from './lib/text'
 import { emitEvent } from './lib/webhooks'
 
@@ -44,6 +45,7 @@ const receive = async (message: ForwardableEmailMessage, env: Env, ctx: Executio
   const box = await db.query.mailbox.findFirst({ where: eq(mailbox.address, recipient) })
   if (!box && !own.catchAll) return message.setReject('No such mailbox')
 
+  let blocked = false
   try {
     // The raw stream can be read once.
     const raw = await new Response(message.raw as unknown as ReadableStream).arrayBuffer()
@@ -59,13 +61,20 @@ const receive = async (message: ForwardableEmailMessage, env: Env, ctx: Executio
       if (env.BUCKET && body.byteLength <= MAX_ATTACHMENT_BYTES) await env.BUCKET.put(id, body, { httpMetadata: { contentType: a.mimeType } })
     }
 
+    const from = formatAddress(parsed.from) || message.from
+    const rules = await db.select().from(blockRule).where(or(isNull(blockRule.domainId), eq(blockRule.domainId, own.id)))
+    const rule = findBlockRule(rules, { from, subject: parsed.subject || '', text: parsed.text || '' })
+
+    const rawKey = env.BUCKET ? `${prefix}/raw.eml` : null
+    if (rawKey) await env.BUCKET!.put(rawKey, raw, { httpMetadata: { contentType: 'message/rfc822' } })
+
     const email = {
       // One email to two of our addresses is delivered, and kept, twice.
       key: `cf:${recipient}:${messageId || crypto.randomUUID()}`,
       domainId: own.id,
       mailbox: recipient,
       // The header is what a person sees; the envelope sender is the fallback.
-      from: formatAddress(parsed.from) || message.from,
+      from,
       to: addressList(parsed.to),
       cc: addressList(parsed.cc),
       replyTo: addressList(parsed.replyTo)[0] || '',
@@ -75,12 +84,18 @@ const receive = async (message: ForwardableEmailMessage, env: Env, ctx: Executio
       messageId,
       date: parsed.date || null,
       attachments,
+      rawKey,
+      blocked: Boolean(rule),
     }
+    blocked = Boolean(rule)
     const stored = await storeInbound(db, email)
 
     if (!stored.created) {
       // A redelivery: drop the copies of the attachments just written.
-      if (env.BUCKET && attachments.length) await env.BUCKET.delete(attachments.map((a) => a.id))
+      if (env.BUCKET) await env.BUCKET.delete([...attachments.map((a) => a.id), ...(rawKey ? [rawKey] : [])])
+    } else if (rule) {
+      // Kept, but quiet: nothing is announced, and a forward address is not used.
+      ctx.waitUntil(db.update(blockRule).set({ hits: sql`${blockRule.hits} + 1` }).where(eq(blockRule.id, rule.id)).then(() => {}, (err) => console.error('block rule count failed', err)))
     } else {
       const snippet = (parsed.text || '').replace(/\s+/g, ' ').trim().slice(0, 300)
       ctx.waitUntil(
@@ -117,7 +132,7 @@ const receive = async (message: ForwardableEmailMessage, env: Env, ctx: Executio
     // rather than lose the email.
     if (!box?.forwardTo) throw err
   }
-  if (box?.forwardTo) await message.forward(box.forwardTo)
+  if (box?.forwardTo && !blocked) await message.forward(box.forwardTo)
 }
 
 // cf.email.sending.message.<event> -> the status the dashboard shows.

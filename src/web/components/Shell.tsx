@@ -3,6 +3,7 @@ import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks'
 import {
   IconAddressBook,
   IconAt,
+  IconShieldX,
   IconFiles,
   IconInbox,
   IconLayoutDashboard,
@@ -37,6 +38,7 @@ import { MailboxesPage } from '../pages/Mailboxes'
 import { MediaPage } from '../pages/Media'
 import { OverviewPage } from '../pages/Overview'
 import { SentPage } from '../pages/Sent'
+import { BlockRulesPage } from '../pages/BlockRules'
 import { SignaturesPage } from '../pages/Signatures'
 import { AiPage } from '../pages/Ai'
 import { TemplatesPage } from '../pages/Templates'
@@ -72,6 +74,7 @@ const GROUPS: { label: string; sections: Section[] }[] = [
     sections: [
       { to: '/domains', label: 'Domains', icon: IconWorld, route: '/domains/:id?', page: <DomainsPage /> },
       { to: '/mailboxes', label: 'Mailboxes', icon: IconAt, route: '/mailboxes', page: <MailboxesPage /> },
+      { to: '/spam', label: 'Spam filter', icon: IconShieldX, route: '/spam', page: <BlockRulesPage /> },
       { to: '/ai', label: 'AI', icon: IconSparkles, route: '/ai', page: <AiPage /> },
     ],
   },

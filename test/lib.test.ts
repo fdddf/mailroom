@@ -6,6 +6,7 @@ import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { composeBody } from '../src/worker/lib/compose'
 import { embedImages, mediaImages, pointToInline } from '../src/worker/lib/inline'
 import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
+import { findBlockRule } from '../src/worker/lib/spam'
 import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
 import { bareAddress, domainOf, fillVariables, isDomainName, parseAddressList } from '../src/worker/lib/text'
@@ -296,5 +297,25 @@ describe('inline images', () => {
     expect(tight.images).toEqual([])
     expect(tight.html).toBe(html)
     expect((await embedImages(undefined, html, 1000)).html).toBe(html)
+  })
+})
+
+describe('findBlockRule', () => {
+  const rules = [
+    { id: 1, kind: 'address' as const, value: 'bad@spam.io' },
+    { id: 2, kind: 'domain' as const, value: 'kiev.ua' },
+    { id: 3, kind: 'keyword' as const, value: 'late husband' },
+  ]
+  const mail = (from: string, subject = 'hi', text = '') => ({ from, subject, text })
+
+  it('catches by address, domain and keyword', () => {
+    expect(findBlockRule(rules, mail('Bad <BAD@spam.io>'))?.id).toBe(1)
+    expect(findBlockRule(rules, mail('Mrs S <s@ipp.kiev.ua>'))?.id).toBe(2)
+    expect(findBlockRule(rules, mail('x@ok.com', 'Help', 'My Late Husband died'))?.id).toBe(3)
+  })
+
+  it('leaves other mail alone', () => {
+    expect(findBlockRule(rules, mail('good@spam.io'))).toBeNull()
+    expect(findBlockRule(rules, mail('a@notkiev.ua'))).toBeNull()
   })
 })

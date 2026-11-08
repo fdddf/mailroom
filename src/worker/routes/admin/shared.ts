@@ -31,6 +31,7 @@ export const threadColumns = {
   replyTo: mail.replyTo,
   subject: mail.subject,
   text: mail.text,
+  hasRaw: sql<boolean>`${mail.rawKey} IS NOT NULL`.mapWith(Boolean),
   hasHtml: sql<boolean>`${mail.html} IS NOT NULL`.mapWith(Boolean),
   attachments: mail.attachments,
   status: mail.status,

@@ -79,7 +79,7 @@ export function MailCard({ mail, collapse = false }: { mail: MailView; collapse?
   const out = mail.direction === 'out'
   const who = out
     ? `${mail.mailbox || 'Me'} → ${mail.toAddrs.join(', ')}${mail.ccAddrs.length ? ` (cc ${mail.ccAddrs.join(', ')})` : ''}`
-    : mail.fromAddr
+    : `${mail.fromAddr} → ${mail.mailbox}`
 
   return (
     <Paper

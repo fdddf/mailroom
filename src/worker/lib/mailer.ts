@@ -199,6 +199,10 @@ export type Inbound = {
   messageId: string
   date: string | null
   attachments: Attachment[]
+  // Where the raw message is kept in R2, if it is.
+  rawKey?: string | null
+  // Caught by a block rule: filed as read and archived.
+  blocked?: boolean
 }
 
 // D1 caps a row at 2 MB.
@@ -232,6 +236,8 @@ export const storeInbound = async (db: Db, email: Inbound): Promise<StoreResult>
       html: email.html ? email.html.slice(0, MAX_HTML) : null,
       messageId: email.messageId,
       attachments: email.attachments,
+      rawKey: email.rawKey ?? null,
+      ...(email.blocked && { archived: true, readAt: createdAt }),
     })
     .onConflictDoNothing({ target: mail.key })
     .returning({ id: mail.id })

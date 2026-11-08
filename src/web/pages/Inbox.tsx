@@ -11,6 +11,8 @@ import { useTab, useTabTitle } from '../components/tabs'
 import { ListPanel, ListRow, MailboxFilter, MasterDetail, PageHeader, confirm } from '../components/ui'
 
 type Box = 'inbox' | 'unread' | 'archived' | 'all'
+const bareAddress = (s: string) => (s.match(/<([^>]+)>/)?.[1] ?? s).trim().toLowerCase()
+
 const BOXES: [Box, string][] = [
   ['inbox', 'Inbox'],
   ['unread', 'Unread'],
@@ -109,7 +111,7 @@ export function InboxPage() {
             dot={m.readAt ? undefined : 'var(--mantine-color-brand-5)'}
             who={m.fromAddr}
             date={m.createdAt}
-            meta={[m.subject || '(no subject)', !mailbox && mailboxes.length > 1 ? `to ${m.mailbox}` : '', m.attachmentCount ? `📎${m.attachmentCount}` : '']
+            meta={[m.subject || '(no subject)', !mailbox && m.mailbox ? `to ${m.mailbox}` : '', m.attachmentCount ? `📎${m.attachmentCount}` : '']
               .filter(Boolean)
               .join(' · ')}
             snippet={m.snippet}
@@ -185,6 +187,13 @@ function MailDetail({
     ({ archive, ...draft }: ReplyDraft & { archive: boolean }) => call(api.mail[':id'].reply.$post({ param, json: { ...draft, archive } })),
     { ...refresh, success: 'Reply sent' },
   )
+  const block = useAction(
+    async (address: string) => {
+      await call(api['block-rules'].$post({ json: { kind: 'address', value: address, shared: false } }))
+      await call(api.mail[':id'].$patch({ param, json: { archived: true } }))
+    },
+    { ...refresh, invalidate: [...refresh.invalidate, ['block-rules']], success: 'Sender blocked: their mail now goes to Archived' },
+  )
   const remove = useAction(() => call(api.mail[':id'].$delete({ param })), { invalidate: [['mail-list'], ['stats']], success: 'Deleted' })
 
   useTabTitle(detail.data && (detail.data.mail.subject || '(no subject)'))
@@ -228,6 +237,21 @@ function MailDetail({
           </Button>
           <Button variant="default" onClick={() => patch.mutate({ archived: !mail.archived })}>
             {mail.archived ? 'Move to inbox' : 'Archive'}
+          </Button>
+          {mail.hasRaw && (
+            <Button variant="default" component="a" href={`/api/admin/mail/${mail.id}/raw`} target="_blank" rel="noopener">
+              View source
+            </Button>
+          )}
+          <Button
+            variant="default"
+            loading={block.isPending}
+            onClick={async () => {
+              if (!(await confirm(`Block ${bareAddress(mail.fromAddr)}?`, 'This email is archived, and what they send from now on goes straight to Archived, unread-free and silent. Manage rules under Spam filter.', { label: 'Block' }))) return
+              block.mutate(bareAddress(mail.fromAddr))
+            }}
+          >
+            Block sender
           </Button>
           <Button
             variant="subtle"

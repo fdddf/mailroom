@@ -20,6 +20,7 @@ import { ATTACH_LIMIT } from '../../lib/files'
 import { emailConfigured } from '../../lib/mailer'
 import { emptyBody, validate } from '../../lib/validate'
 import { aiRoutes } from './ai'
+import { blockRuleRoutes } from './block-rules'
 import { domainRoutes } from './domains'
 import { fileRoutes } from './files'
 import { formRoutes } from './forms'
@@ -152,6 +153,7 @@ export const adminRoutes = new Hono<AppEnv>()
   .route('/mailboxes', mailboxRoutes)
   .route('/templates', templateRoutes)
   .route('/signatures', signatureRoutes)
+  .route('/block-rules', blockRuleRoutes)
   .route('/files', fileRoutes)
   .route('/ai', aiRoutes)
   .route('/media', mediaRoutes)

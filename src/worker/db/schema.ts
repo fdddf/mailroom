@@ -132,7 +132,8 @@ export const mail = sqliteTable(
     attachments: text('attachments', { mode: 'json' }).$type<Attachment[]>().notNull().default(sql`'[]'`),
     // Outgoing: the last delivery event (sent, delivered, bounced, …).
     status: text('status').notNull().default(''),
-    // Incoming only.
+    // Incoming only: the whole message as received (.eml), in R2.
+    rawKey: text('raw_key'),
     readAt: text('read_at'),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
   },
@@ -336,6 +337,28 @@ export const template = sqliteTable(
     updatedAt: text('updated_at').notNull().default(now),
   },
   (t) => [index('template_domain').on(t.domainId)],
+)
+
+// What the inbox keeps out. Mail from a blocked address or domain, or with a
+// blocked word in its subject or body, is filed straight into Archived: read,
+// without a notification, webhook or forward (lib/spam.ts). Without a
+// domain, a rule applies to all of them.
+export const BLOCK_KINDS = ['address', 'domain', 'keyword'] as const
+export type BlockKind = (typeof BLOCK_KINDS)[number]
+
+export const blockRule = sqliteTable(
+  'block_rule',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domain.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: BLOCK_KINDS }).notNull(),
+    // Lowercase: an address, a domain name, or a word or phrase.
+    value: text('value').notNull(),
+    // Emails it has caught.
+    hits: integer('hits').notNull().default(0),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('block_rule_domain').on(t.domainId)],
 )
 
 // Where the writing assistant sends its requests. 'anthropic' is the Claude

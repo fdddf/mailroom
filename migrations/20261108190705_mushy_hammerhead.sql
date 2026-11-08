@@ -1,0 +1,1 @@
+ALTER TABLE `mail` ADD `raw_key` text;
