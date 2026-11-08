@@ -4,6 +4,7 @@ import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { composeBody } from '../src/worker/lib/compose'
+import { embedImages, mediaImages, pointToInline } from '../src/worker/lib/inline'
 import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
 import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
@@ -275,5 +276,45 @@ describe('files', () => {
     expect(formatBytes(500)).toBe('500 B')
     expect(formatBytes(1536)).toBe('1.5 KB')
     expect(formatBytes(250 * 1024 * 1024)).toBe('250 MB')
+  })
+})
+
+describe('inline images', () => {
+  const a = 'a'.repeat(32) + '.png'
+  const b = 'b'.repeat(32) + '.jpg'
+  const html = `<p><img src="https://m.example.com/media/${a}" width="120"></p><img alt="x" src='https://other.host/media/${b}'><img src="https://m.example.com/media/${a}"><img src="https://cdn.example.org/logo.png">`
+  const bucket = (objects: Record<string, { size: number; type: string }>) => ({
+    get: vi.fn(async (key: string) => {
+      const o = objects[key]
+      return o ? { size: o.size, httpMetadata: { contentType: o.type }, arrayBuffer: async () => new ArrayBuffer(o.size) } : null
+    }),
+  }) as unknown as Parameters<typeof embedImages>[0]
+
+  it('finds library images once each, in order', () => {
+    expect(mediaImages(html)).toEqual([a, b])
+    expect(mediaImages('<img src="https://x.com/media/short.png"><a href="https://m.example.com/media/' + a + '">')).toEqual([])
+  })
+
+  it('points only the embedded ones at cid:', () => {
+    const out = pointToInline(html, new Set([a]))
+    expect(out.match(/cid:mr-a+\.png/g)).toHaveLength(2)
+    expect(out).toContain(`src='https://other.host/media/${b}'`)
+    expect(out).toContain('width="120"')
+  })
+
+  it('embeds what fits and is really an image of ours', async () => {
+    const r = await embedImages(bucket({ ['media/' + a]: { size: 100, type: 'image/png' }, ['media/' + b]: { size: 50, type: 'image/jpeg' } }), html, 1000)
+    expect(r.images.map((i) => [i.disposition, i.contentId, i.type])).toEqual([
+      ['inline', `mr-${a}`, 'image/png'],
+      ['inline', `mr-${b}`, 'image/jpeg'],
+    ])
+    expect(r.bytes).toBe(150)
+    expect(r.html).not.toContain('/media/')
+
+    // Over budget, missing, or not an image type: stays remote.
+    const tight = await embedImages(bucket({ ['media/' + a]: { size: 100, type: 'image/png' }, ['media/' + b]: { size: 50, type: 'text/html' } }), html, 99)
+    expect(tight.images).toEqual([])
+    expect(tight.html).toBe(html)
+    expect((await embedImages(undefined, html, 1000)).html).toBe(html)
   })
 })

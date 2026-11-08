@@ -11,8 +11,9 @@ export function MediaPage() {
         <UploadButton upload={upload} uploading={uploading} />
       </PageHeader>
       <Text size="sm" c="dimmed">
-        Images for HTML emails and templates: PNG, JPEG, GIF or WebP, up to 5 MB each. They are public, since recipients' mail apps load them from
-        here; their addresses cannot be guessed.
+        Images for HTML emails, templates and signatures: PNG, JPEG, GIF or WebP, up to 5 MB each. Emails written in Compose and replies carry
+        them inside (counted with the attachments), so they show even where remote images are blocked; broadcasts load them from here. They are
+        public, and their addresses cannot be guessed.
       </Text>
       <MediaGrid upload={upload} />
     </Stack>

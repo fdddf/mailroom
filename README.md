@@ -6,7 +6,7 @@ A self-hosted mail center for your own domains, running entirely on your Cloudfl
 
 - **Inbox**: mail to your domains arrives through Cloudflare Email Routing and is kept in D1 (attachments in R2). Read, reply, archive, search.
 - **Sending**: compose and reply from any of your mailboxes through Cloudflare Email Sending, with delivery status (delivered, bounced, …).
-- **Signatures and files**: signatures per domain or shared, with a default per mailbox; a file library in R2 for sending files of any size, attached while they fit in the email, otherwise as a download link.
+- **Signatures and files**: signatures per domain or shared, with a default per mailbox; a file library in R2 for sending files of any size, attached while they fit in the email, otherwise as a download link. Images from the library (a logo in a signature, say) go inside the email, so they show where remote images are blocked.
 - **Broadcasts**: contacts and segments per domain, scheduled sends in batches, per-recipient unsubscribe links (including one-click, RFC 8058), automatic suppression of hard bounces and complaints.
 - **Editor**: plain text or HTML with a visual editor, an image library, templates, and an optional AI writing assistant (Claude or any OpenAI-compatible API).
 - **Sign-up forms**: paste a form into any website, with no server: Turnstile bot protection and double opt-in by email.

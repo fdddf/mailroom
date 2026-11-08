@@ -106,7 +106,7 @@ function Editor({ id, initial }: { id: string | null; initial?: { name: string; 
       />
       <BodyEditor
         label="Signature"
-        description="Goes under the message, after a “-- ” line in the plain-text version. An HTML signature makes the email HTML."
+        description="Goes under the message, after a “-- ” line in the plain-text version. An HTML signature makes the email HTML; a logo from the image library is embedded in the email, so it shows even where remote images are blocked."
         format={form.format}
         onFormat={(f) => set('format', f)}
         value={form.body}

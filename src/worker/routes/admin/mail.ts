@@ -119,6 +119,7 @@ export const mailRoutes = new Hono<AppEnv>()
         subject,
         ...composeBody({ message: { format, body: message }, links: files.links, signature }),
         files: files.files,
+        embedImages: true,
         source: 'dashboard',
       })
       if (!sent.ok) return c.json({ error: sent.error, message: sent.message }, sent.status)
@@ -289,6 +290,7 @@ export const mailRoutes = new Hono<AppEnv>()
           quote: { attribution: `On ${original.createdAt.slice(0, 10)}, ${original.fromAddr} wrote:`, text: original.text ?? '' },
         }),
         files: files.files,
+        embedImages: true,
         headers: original.messageId ? { 'In-Reply-To': original.messageId, References: original.messageId } : undefined,
         source: 'dashboard',
       })

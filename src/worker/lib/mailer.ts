@@ -7,6 +7,8 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import type { Db } from '../db'
 import { domain, mail, mailbox, type Attachment } from '../db/schema'
 import type { Env } from '../env'
+import { ATTACH_LIMIT } from './files'
+import { embedImages } from './inline'
 import { bareAddress, domainOf } from './text'
 
 export const emailConfigured = (env: Env) => Boolean(env.EMAIL)
@@ -115,6 +117,10 @@ export type Outgoing = {
   // Files from the library: attached when `content` is there, else already
   // linked in the body. All are listed on the recorded email.
   files?: (Attachment & { content?: ArrayBuffer })[]
+  // Put images from the library in the email itself (lib/inline.ts), as far
+  // as they fit beside the attached files; the recorded copy keeps their
+  // addresses, which the dashboard can show.
+  embedImages?: boolean
   // Who sent it: 'dashboard' or 'api:<key name>'.
   source: string
   // false for tests that do not belong in the Sent list.
@@ -136,7 +142,14 @@ export const sendMail = async (env: Env, db: Db, m: Outgoing): Promise<SendResul
   const attachments = files.flatMap((f): EmailAttachment[] =>
     f.content ? [{ disposition: 'attachment', filename: f.filename || 'file', type: f.content_type, content: f.content }] : [],
   )
-  const result = await deliver(env, { from, to: m.to, cc, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html, headers: m.headers, attachments })
+  let html = m.html
+  if (m.embedImages && html) {
+    const attached = attachments.reduce((sum, a) => sum + (a.content as ArrayBuffer).byteLength, 0)
+    const embedded = await embedImages(env.BUCKET, html, ATTACH_LIMIT - attached)
+    html = embedded.html
+    attachments.push(...embedded.images)
+  }
+  const result = await deliver(env, { from, to: m.to, cc, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html, headers: m.headers, attachments })
   if (!result.ok) return { ok: false, status: 424, error: 'send_failed', message: `${result.code}: ${result.message}` }
 
   let mailId: number | null = null
