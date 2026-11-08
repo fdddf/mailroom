@@ -122,6 +122,32 @@ export const mailRoutes = new Hono<AppEnv>()
     },
   )
 
+  // Mark picked received emails read/unread or archive/unarchive them. Only
+  // those in the picked domain change; marking read keeps an earlier read time.
+  .post(
+    '/bulk-update',
+    validate(
+      'json',
+      z.object({
+        ids: z.array(z.number().int().positive()).min(1, 'invalid_ids').max(5000, 'invalid_ids'),
+        read: z.boolean().optional(),
+        archived: z.boolean().optional(),
+      }).refine((v) => v.read !== undefined || v.archived !== undefined, 'nothing_to_update'),
+    ),
+    async (c) => {
+      const { ids, read, archived } = c.req.valid('json')
+      const rows = await c.var.db
+        .update(mail)
+        .set({
+          ...(read !== undefined && { readAt: read ? sql`coalesce(${mail.readAt}, ${nowIso()})` : null }),
+          ...(archived !== undefined && { archived }),
+        })
+        .where(and(sql`${mail.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`, eq(mail.direction, 'in'), inDomain(c, mail.domainId)))
+        .returning({ id: mail.id })
+      return c.json({ updated: rows.length })
+    },
+  )
+
   // Delete received emails picked in the list, with their attachments in R2.
   // Only those in the picked domain go; ids already gone are skipped. The ids
   // travel as one JSON parameter: D1 allows 100 bound parameters a query.

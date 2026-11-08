@@ -1,6 +1,6 @@
-import { Alert, Button, Checkbox, Group, SegmentedControl, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Alert, Button, Checkbox, Group, Menu, SegmentedControl, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
-import { IconPencil, IconSearch, IconTrash } from '@tabler/icons-react'
+import { IconArchive, IconChevronDown, IconInbox, IconMail, IconMailOpened, IconPencil, IconSearch, IconTrash } from '@tabler/icons-react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -66,6 +66,17 @@ export function InboxPage() {
     invalidate: [['mail-list'], ['stats']],
     success: ({ deleted }) => `Deleted ${deleted} ${deleted === 1 ? 'email' : 'emails'}`,
   })
+  const updateMany = useAction(
+    (v: { ids: number[]; read?: boolean; archived?: boolean }) => call(api.mail['bulk-update'].$post({ json: v })),
+    {
+      invalidate: [['mail-list'], ['stats']],
+      success: ({ updated }) => `Updated ${updated} ${updated === 1 ? 'email' : 'emails'}`,
+    },
+  )
+  // Archiving or moving back hides the rows from this box, so clear the selection.
+  const updatePicked = (patch: { read?: boolean; archived?: boolean }) =>
+    updateMany.mutate({ ids: picked, ...patch }, { onSuccess: () => patch.archived !== undefined && setTicked(new Set()) })
+  const pickWhere = (test: (m: (typeof items)[number]) => boolean) => setTicked(new Set(items.filter(test).map((m) => m.id)))
   const deletePicked = async () => {
     const title = `Delete ${picked.length} ${picked.length === 1 ? 'email' : 'emails'}?`
     if (!(await confirm(title, 'They and their attachments are removed for good.', { danger: true, label: 'Delete' }))) return
@@ -87,17 +98,53 @@ export function InboxPage() {
       />
       <TextInput leftSection={<IconSearch size={16} />} placeholder="Search sender, subject or body" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
       {items.length > 0 && (
-        <Group justify="space-between" wrap="nowrap" mih={26} px={14}>
-          <Checkbox
-            label={picked.length ? `${picked.length} selected` : list.hasNextPage ? `Select all ${items.length} loaded` : 'Select all'}
-            checked={allPicked}
-            indeterminate={picked.length > 0 && !allPicked}
-            onChange={() => setTicked(new Set(allPicked ? [] : items.map((m) => m.id)))}
-          />
+        <Group justify="space-between" wrap="nowrap" mih={30} px={14}>
+          <Group gap={6} wrap="nowrap">
+            <Checkbox
+              aria-label="Select all"
+              checked={allPicked}
+              indeterminate={picked.length > 0 && !allPicked}
+              onChange={() => setTicked(new Set(allPicked ? [] : items.map((m) => m.id)))}
+            />
+            <Menu position="bottom-start" withinPortal>
+              <Menu.Target>
+                <Button size="compact-sm" variant="subtle" color="gray" rightSection={<IconChevronDown size={14} />}>
+                  {picked.length ? `${picked.length} selected` : 'Select'}
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => pickWhere(() => true)}>{list.hasNextPage ? `All ${items.length} loaded` : 'All'}</Menu.Item>
+                <Menu.Item onClick={() => pickWhere((m) => !m.readAt)}>Unread</Menu.Item>
+                <Menu.Item onClick={() => pickWhere((m) => !!m.readAt)}>Read</Menu.Item>
+                <Menu.Item disabled={!picked.length} onClick={() => setTicked(new Set())}>
+                  None
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
           {picked.length > 0 && (
-            <Button size="compact-sm" variant="light" color="red" leftSection={<IconTrash size={14} />} loading={removeMany.isPending} onClick={deletePicked}>
-              Delete
-            </Button>
+            <Group gap={4} wrap="nowrap">
+              <Button size="compact-sm" variant="subtle" color="gray" title="Mark as read" aria-label="Mark as read" loading={updateMany.isPending} onClick={() => updatePicked({ read: true })}>
+                <IconMailOpened size={16} />
+              </Button>
+              <Button size="compact-sm" variant="subtle" color="gray" title="Mark as unread" aria-label="Mark as unread" loading={updateMany.isPending} onClick={() => updatePicked({ read: false })}>
+                <IconMail size={16} />
+              </Button>
+              <Button
+                size="compact-sm"
+                variant="subtle"
+                color="gray"
+                title={box === 'archived' ? 'Move to inbox' : 'Archive'}
+                aria-label={box === 'archived' ? 'Move to inbox' : 'Archive'}
+                loading={updateMany.isPending}
+                onClick={() => updatePicked({ archived: box !== 'archived' })}
+              >
+                {box === 'archived' ? <IconInbox size={16} /> : <IconArchive size={16} />}
+              </Button>
+              <Button size="compact-sm" variant="light" color="red" leftSection={<IconTrash size={14} />} loading={removeMany.isPending} onClick={deletePicked}>
+                Delete
+              </Button>
+            </Group>
           )}
         </Group>
       )}
