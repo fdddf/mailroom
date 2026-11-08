@@ -1,11 +1,12 @@
-// Public pages: the unsubscribe link in every broadcast, and the images
-// uploaded for HTML email.
+// Public pages: the unsubscribe link in every broadcast, the images
+// uploaded for HTML email, and the files sent as download links.
 
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getDb } from '../db'
-import { contact, domain } from '../db/schema'
+import { contact, domain, file } from '../db/schema'
 import type { AppEnv } from '../env'
+import { countDownload, fileKey, parseRange } from '../lib/files'
 import { IMAGE_TYPES, MEDIA_PREFIX } from './admin/media'
 
 export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -78,5 +79,52 @@ export const publicRoutes = new Hono<AppEnv>()
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Access-Control-Allow-Origin': '*',
+    })
+  })
+
+  // A file from the library, sent as a download link (admin/files.ts). The
+  // token is the secret; the name after it is only for the browser. Always a
+  // download, never shown on this origin (the dashboard's). Range requests
+  // let a big download resume.
+  .get('/f/:token/:name?', async (c) => {
+    const token = c.req.param('token')
+    const gone = () => c.html(page('This file is not available', '', '<p>It may have been removed. Ask whoever sent you the link for a new one.</p>'), 404)
+    const bucket = c.env.BUCKET
+    if (!/^[0-9a-f]{40}$/.test(token) || !bucket) return gone()
+    const db = getDb(c.env.DB)
+    const row = await db.query.file.findFirst({ columns: { name: true, size: true }, where: and(eq(file.token, token), eq(file.status, 'ready')) })
+    if (!row) return gone()
+
+    const filename = row.name.replace(/[\r\n"\\]/g, '_')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Referrer-Policy': 'no-referrer',
+      'X-Robots-Tag': 'noindex',
+    }
+    if (c.req.method === 'HEAD') return c.body(null, 200, { ...headers, 'Content-Length': String(row.size) })
+
+    const range = parseRange(c.req.header('Range'), row.size)
+    if (range === 'unsatisfiable') return c.body(null, 416, { 'Content-Range': `bytes */${row.size}` })
+    const object = await bucket.get(fileKey(token), range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined)
+    if (!object) return gone()
+
+    // Count a download once, not for every piece a download manager asks for.
+    if (!range || range.start === 0) {
+      try {
+        c.executionCtx.waitUntil(countDownload(db, token).catch((err) => console.error('download count failed', err)))
+      } catch {
+        // No execution context (tests).
+      }
+    }
+    return c.body(object.body as unknown as ReadableStream, range ? 206 : 200, {
+      ...headers,
+      'Content-Length': String(range ? range.end - range.start + 1 : object.size),
+      ETag: object.httpEtag,
+      ...(range && { 'Content-Range': `bytes ${range.start}-${range.end}/${object.size}` }),
     })
   })

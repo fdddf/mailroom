@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { api, call } from '../api'
 import { useAction, useScope } from '../hooks'
 import { AiAssist, BodyEditor, TemplatePicker, type BodyFormat } from '../components/editor'
+import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, type PickedFile } from '../components/files'
 import { FromSelect, initialSender } from '../components/mail'
 import { PageHeader } from '../components/ui'
 
@@ -17,27 +18,35 @@ export function ComposePage() {
   const [format, setFormat] = useState<BodyFormat>('text')
   const [sentId, setSentId] = useState<number | null>(null)
   const [from, setFrom] = useState('')
+  const [files, setFiles] = useState<PickedFile[]>([])
+  const [signatureId, setSignatureId] = useState<number | null>(null)
   // The session arrives after the first render, and the domain can change.
   useEffect(() => {
     if (mailboxes.length && !mailboxes.some((m) => m.address === from)) setFrom(initialSender(mailboxes, params.get('from')))
   }, [from, mailboxes, params])
+  // Each mailbox starts with its own signature.
+  const fromSignature = mailboxSignature(mailboxes, from)
+  useEffect(() => setSignatureId(fromSignature), [from, fromSignature])
+  const fits = attachmentsFit(files, session?.attachLimit ?? Infinity)
   const set = (key: keyof typeof form) => (value: string | number) => setForm((f) => ({ ...f, [key]: String(value) }))
 
   const send = useAction(
     () =>
       call(
         api.mail.send.$post({
-          json: { from: from || undefined, to: form.to, cc: form.cc, subject: form.subject, message: form.message, format },
+          json: { from: from || undefined, to: form.to, cc: form.cc, subject: form.subject, message: form.message, format, signatureId, attachments: toPicks(files) },
         }),
       ),
     { invalidate: [['sent-list'], ['stats']], success: 'Sent' },
   )
 
   const submit = async () => {
+    if (!fits) return
     const result = await send.mutateAsync().catch(() => null)
     if (result) {
       setSentId(result.mailId)
       setForm({ ...blank, to: '', subject: '' })
+      setFiles([])
     }
   }
 
@@ -86,8 +95,10 @@ export function ComposePage() {
               </>
             }
           />
+          <Attachments value={files} onChange={setFiles} />
+          <SignatureSelect value={signatureId} onChange={setSignatureId} />
           <Group>
-            <Button type="submit" loading={send.isPending} disabled={!session?.canEmail || !form.message.trim()}>
+            <Button type="submit" loading={send.isPending} disabled={!session?.canEmail || !form.message.trim() || !fits}>
               Send
             </Button>
             <Text size="xs" c="dimmed">

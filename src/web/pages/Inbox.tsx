@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, call, errorText } from '../api'
 import { fmt, useAction, useDomainName, useScope, type Session } from '../hooks'
-import { Composer, MailCard, NoEmailHint } from '../components/mail'
+import { Composer, MailCard, NoEmailHint, type ReplyDraft } from '../components/mail'
 import { useTab, useTabTitle } from '../components/tabs'
 import { ListPanel, ListRow, MailboxFilter, MasterDetail, PageHeader, confirm } from '../components/ui'
 
@@ -182,8 +182,7 @@ function MailDetail({
     refresh,
   )
   const reply = useAction(
-    ({ message, archive, from }: { message: string; archive: boolean; from: string | undefined }) =>
-      call(api.mail[':id'].reply.$post({ param, json: { message, archive, from } })),
+    ({ archive, ...draft }: ReplyDraft & { archive: boolean }) => call(api.mail[':id'].reply.$post({ param, json: { ...draft, archive } })),
     { ...refresh, success: 'Reply sent' },
   )
   const remove = useAction(() => call(api.mail[':id'].$delete({ param })), { invalidate: [['mail-list'], ['stats']], success: 'Deleted' })
@@ -214,8 +213,8 @@ function MailDetail({
             defaultFrom={mail.mailbox}
             aiContext={`From: ${mail.fromAddr}\nSubject: ${mail.subject}\n\n${mail.text ?? ''}`}
             actions={[
-              { label: 'Send reply', primary: true, send: (message, from) => reply.mutateAsync({ message, archive: false, from }) },
-              { label: 'Send and archive', send: (message, from) => reply.mutateAsync({ message, archive: true, from }) },
+              { label: 'Send reply', primary: true, send: (draft) => reply.mutateAsync({ ...draft, archive: false }) },
+              { label: 'Send and archive', send: (draft) => reply.mutateAsync({ ...draft, archive: true }) },
             ]}
           />
         ) : (

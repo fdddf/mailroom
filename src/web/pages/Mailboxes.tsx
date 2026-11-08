@@ -1,10 +1,11 @@
-import { ActionIcon, Alert, Badge, Button, Group, Paper, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Group, Paper, Select, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core'
 import { IconArrowForwardUp, IconInbox, IconPencil, IconStar, IconStarFilled, IconTrash } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api, call, errorText } from '../api'
 import { useAction, useDomainName, useScope } from '../hooks'
+import { useSignatures } from '../components/files'
 import { PageHeader, confirm } from '../components/ui'
 
 // Our own addresses: what mail can be sent from, and what the inbox groups by.
@@ -12,12 +13,13 @@ export function MailboxesPage() {
   const { session, domain, domainId } = useScope()
   const domainName = useDomainName()
   const list = useQuery({ queryKey: ['mailboxes'], queryFn: () => call(api.mailboxes.$get()) })
+  const signatures = useSignatures().data?.items ?? []
   const [form, setForm] = useState({ address: '', name: '' })
   const invalidate = { invalidate: [['mailboxes'], ['domains']] }
 
   const add = useAction(() => call(api.mailboxes.$post({ json: form })), { ...invalidate, success: 'Mailbox added' })
   const patch = useAction(
-    ({ id, ...json }: { id: number; name?: string; forwardTo?: string; isDefault?: true }) => call(api.mailboxes[':id'].$patch({ param: { id: String(id) }, json })),
+    ({ id, ...json }: { id: number; name?: string; forwardTo?: string; signatureId?: number | null; isDefault?: true }) => call(api.mailboxes[':id'].$patch({ param: { id: String(id) }, json })),
     invalidate,
   )
   const remove = useAction((id: number) => call(api.mailboxes[':id'].$delete({ param: { id: String(id) } })), { ...invalidate, success: 'Mailbox removed' })
@@ -61,6 +63,7 @@ export function MailboxesPage() {
               {!domainId && <Table.Th>Domain</Table.Th>}
               <Table.Th>Display name</Table.Th>
               <Table.Th>Forwards to</Table.Th>
+              <Table.Th>Signature</Table.Th>
               <Table.Th ta="right">Received</Table.Th>
               <Table.Th ta="right">Sent</Table.Th>
               <Table.Th />
@@ -75,7 +78,7 @@ export function MailboxesPage() {
                       {m.address}
                     </Text>
                     {m.isDefault && (
-                      <Badge size="sm" variant="light">
+                      <Badge size="sm" variant="light" style={{ flexShrink: 0 }}>
                         Default
                       </Badge>
                     )}
@@ -95,6 +98,20 @@ export function MailboxesPage() {
                   <Text size="sm" c={m.forwardTo ? undefined : 'dimmed'}>
                     {m.forwardTo || '—'}
                   </Text>
+                </Table.Td>
+                <Table.Td>
+                  <Select
+                    aria-label={`Signature of ${m.address}`}
+                    size="xs"
+                    w={170}
+                    data={[
+                      { value: '', label: 'None' },
+                      ...signatures.filter((s) => !s.domainId || s.domainId === m.domainId).map((s) => ({ value: String(s.id), label: s.name })),
+                    ]}
+                    value={m.signatureId ? String(m.signatureId) : ''}
+                    onChange={(v) => patch.mutate({ id: m.id, signatureId: v ? Number(v) : null })}
+                    allowDeselect={false}
+                  />
                 </Table.Td>
                 <Table.Td ta="right">{m.received}</Table.Td>
                 <Table.Td ta="right">{m.sent}</Table.Td>

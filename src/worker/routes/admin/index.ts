@@ -16,16 +16,19 @@ import { getDb } from '../../db'
 import { aiProvider, contact, domain, mail, mailbox } from '../../db/schema'
 import type { AppEnv } from '../../env'
 import { SESSION_COOKIE, SESSION_SECONDS, secretsMatch, signSession, verifySession } from '../../lib/crypto'
+import { ATTACH_LIMIT } from '../../lib/files'
 import { emailConfigured } from '../../lib/mailer'
 import { emptyBody, validate } from '../../lib/validate'
 import { aiRoutes } from './ai'
 import { domainRoutes } from './domains'
+import { fileRoutes } from './files'
 import { formRoutes } from './forms'
 import { mailRoutes, sentRoutes } from './mail'
 import { mailboxRoutes } from './mailboxes'
 import { broadcastRoutes, contactRoutes, segmentRoutes } from './marketing'
 import { mediaRoutes } from './media'
 import { inDomain } from './shared'
+import { signatureRoutes } from './signatures'
 import { templateRoutes } from './templates'
 
 export const DOMAIN_HEADER = 'X-Mailroom-Domain'
@@ -87,6 +90,8 @@ export const adminRoutes = new Hono<AppEnv>()
       // Whether the send_email binding is there: without it nothing is sent.
       canEmail: emailConfigured(c.env),
       attachments: Boolean(c.env.BUCKET),
+      // How much may go attached in one email; bigger files go as links.
+      attachLimit: ATTACH_LIMIT,
       publicUrl: (c.env.PUBLIC_URL || new URL(c.req.url).origin).replace(/\/$/, ''),
       // The domain the dashboard is looking at, as the server understood it.
       domainId: c.var.domain?.id ?? null,
@@ -146,6 +151,8 @@ export const adminRoutes = new Hono<AppEnv>()
   .route('/sent', sentRoutes)
   .route('/mailboxes', mailboxRoutes)
   .route('/templates', templateRoutes)
+  .route('/signatures', signatureRoutes)
+  .route('/files', fileRoutes)
   .route('/ai', aiRoutes)
   .route('/media', mediaRoutes)
   .route('/contacts', contactRoutes)

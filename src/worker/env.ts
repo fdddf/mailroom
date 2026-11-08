@@ -7,7 +7,8 @@ export type Env = {
   DB: D1Database
   // Sends from any address on a domain onboarded to Email Sending.
   EMAIL?: SendEmail
-  // Attachments of received mail (mail/…) and images for HTML email (media/…).
+  // Attachments of received mail (mail/…), images for HTML email (media/…)
+  // and the file library (files/…).
   BUCKET?: R2Bucket
   // Where this Worker is reachable: unsubscribe links and images point here.
   PUBLIC_URL?: string

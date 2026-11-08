@@ -44,11 +44,12 @@ export const quote = (text: string | null | undefined) =>
     .map((line) => `> ${line}`)
     .join('\n')
 
-const escapeHtml = (s: string) =>
+export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
-// Plain text -> minimal HTML: paragraphs, line breaks, bare links made clickable.
-export const textToHtml = (text: string, footer = '') => {
+// Plain text -> minimal HTML: paragraphs, line breaks, bare links made
+// clickable. `wrap` false gives just the paragraphs, for inside other HTML.
+export const textToHtml = (text: string, footer = '', wrap = true) => {
   const paragraphs = text
     .trim()
     .split(/\r?\n\s*\r?\n/)
@@ -59,6 +60,7 @@ export const textToHtml = (text: string, footer = '') => {
     )
     .map((p) => `<p style="margin:0 0 16px">${p}</p>`)
     .join('\n')
+  if (!wrap) return paragraphs + footer
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#141413;max-width:600px">
 ${paragraphs}${footer}
 </div>`

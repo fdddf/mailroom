@@ -6,10 +6,11 @@
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { API_SCOPES, WEBHOOK_EVENTS, apiKey, domain, mailbox, webhook, type ApiKey, type Webhook } from '../../db/schema'
+import { API_SCOPES, WEBHOOK_EVENTS, apiKey, domain, file, mailbox, webhook, type ApiKey, type Webhook } from '../../db/schema'
 import type { AppEnv } from '../../env'
 import { newApiKey, randomToken } from '../../lib/crypto'
 import { checkDomain } from '../../lib/dns'
+import { fileKey } from '../../lib/files'
 import { sendMail } from '../../lib/mailer'
 import { isDomainName, isEmail } from '../../lib/text'
 import { emptyBody, validate } from '../../lib/validate'
@@ -101,15 +102,23 @@ export const domainRoutes = new Hono<AppEnv>()
   })
 
   // Everything of the domain goes with it: mailboxes, mail and its
-  // attachments, contacts, broadcasts, templates, keys and webhooks.
+  // attachments, contacts, broadcasts, templates, signatures, its files,
+  // keys and webhooks.
   .delete('/:id', validate('param', idParam), async (c) => {
     const { id } = c.req.valid('param')
+    // Their rows go with the domain; the bytes in R2 need finding first.
+    const files = await c.var.db.select({ token: file.token, uploadId: file.uploadId }).from(file).where(eq(file.domainId, id))
     const [gone] = await c.var.db.delete(domain).where(eq(domain.id, id)).returning({ id: domain.id })
     if (!gone) return c.json({ error: 'not_found' }, 404)
     const bucket = c.env.BUCKET
     if (bucket) {
       c.executionCtx.waitUntil(
         (async () => {
+          for (const f of files) {
+            if (f.uploadId) await bucket.resumeMultipartUpload(fileKey(f.token), f.uploadId).abort().catch(() => {})
+          }
+          const done = files.filter((f) => !f.uploadId).map((f) => fileKey(f.token))
+          for (let i = 0; i < done.length; i += 1000) await bucket.delete(done.slice(i, i + 1000))
           for (let cursor: string | undefined, more = true; more; ) {
             const listed = await bucket.list({ prefix: `mail/${id}/`, cursor, limit: 1000 })
             if (listed.objects.length) await bucket.delete(listed.objects.map((o) => o.key))

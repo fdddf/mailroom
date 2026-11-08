@@ -6,6 +6,7 @@ A self-hosted mail center for your own domains, running entirely on your Cloudfl
 
 - **Inbox**: mail to your domains arrives through Cloudflare Email Routing and is kept in D1 (attachments in R2). Read, reply, archive, search.
 - **Sending**: compose and reply from any of your mailboxes through Cloudflare Email Sending, with delivery status (delivered, bounced, …).
+- **Signatures and files**: signatures per domain or shared, with a default per mailbox; a file library in R2 for sending files of any size, attached while they fit in the email, otherwise as a download link.
 - **Broadcasts**: contacts and segments per domain, scheduled sends in batches, per-recipient unsubscribe links (including one-click, RFC 8058), automatic suppression of hard bounces and complaints.
 - **Editor**: plain text or HTML with a visual editor, an image library, templates, and an optional AI writing assistant (Claude or any OpenAI-compatible API).
 - **Sign-up forms**: paste a form into any website, with no server: Turnstile bot protection and double opt-in by email.
@@ -49,7 +50,7 @@ Open the Worker's address, sign in, and add your first domain under **Domains**.
 
 To use your own hostname, add it under the Worker's **Settings → Domains & Routes**. Unsubscribe links use the address the dashboard was on when a broadcast was queued; set the variable `PUBLIC_URL` under **Variables and Secrets** to fix one address instead.
 
-It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/u/*` and `/media/*` public).
+It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/u/*`, `/media/*`, `/f/*` and `/subscribe/*` public).
 
 ## Adding a domain
 
@@ -99,7 +100,7 @@ Other scripts: `npm run typecheck`, `npm test`, and `npm run db:generate` after 
 | `src/worker/index.ts` | Worker entry: `fetch`, `email` (receiving), `scheduled` (broadcasts), `queue` (delivery events) |
 | `src/worker/routes/admin/` | The dashboard's API (`/api/admin`) |
 | `src/worker/routes/v1.ts` | The integration API (`/v1`) |
-| `src/worker/routes/public.ts` | Unsubscribe pages (`/u/…`) and email images (`/media/…`) |
+| `src/worker/routes/public.ts` | Unsubscribe pages (`/u/…`), email images (`/media/…`) and file download links (`/f/…`) |
 | `src/worker/lib/` | Sending and receiving, broadcasts, webhooks, DNS checks, AI |
 | `src/worker/db/schema.ts` | The D1 schema; migrations in `migrations/` |
 | `src/web/` | The dashboard (React, Mantine) |
@@ -108,7 +109,8 @@ Other scripts: `npm run typecheck`, `npm test`, and `npm run db:generate` after 
 
 - Cloudflare Email Service is meant for transactional mail. Broadcasts work, but send only to people who asked for your mail and keep bounces and complaints low, or your sending may be limited.
 - New accounts start at a daily sending quota that grows with reputation; broadcasts pause when it is reached and continue later without sending twice.
-- One email: at most 50 recipients and 5 MiB. Received bodies are trimmed to fit D1's row limit; attachments over 20 MB are listed but not stored.
+- One email: at most 50 recipients and 25 MiB, attachments included. Attachments grow by a third on the way, so at most 17 MiB of files go attached; anything more is sent as a download link (`/f/<token>/<name>`), which anyone holding it can use until the file is deleted under **Files**. Files of any size can be uploaded: the dashboard sends them to R2 in 10 MiB parts.
+- Received bodies are trimmed to fit D1's row limit; attachments over 20 MB are listed but not stored.
 
 ## License
 

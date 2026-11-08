@@ -29,7 +29,30 @@ export const domain = sqliteTable('domain', {
   createdAt: text('created_at').notNull().default(now),
 })
 
-export type Attachment = { id: string; filename: string | null; size: number; content_type: string }
+// A file on an email. `id` is its R2 key: mail/… for what arrived with
+// received mail, files/… for a file from the library (table `file`) that
+// went out with sent mail. `link` is set when it went out as a download link
+// in the body rather than attached.
+export type Attachment = { id: string; filename: string | null; size: number; content_type: string; link?: string }
+
+export const BODY_FORMATS = ['text', 'html'] as const
+export type BodyFormat = (typeof BODY_FORMATS)[number]
+
+// Added under what is written when sending; each mailbox can have a default
+// one. Without a domain, every domain can use it.
+export const signature = sqliteTable(
+  'signature',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domain.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    format: text('format', { enum: BODY_FORMATS }).notNull().default('text'),
+    body: text('body').notNull().default(''),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (t) => [index('signature_domain').on(t.domainId)],
+)
 
 // Our own addresses: what mail can be sent from, and what the inbox groups by.
 export const mailbox = sqliteTable(
@@ -47,9 +70,37 @@ export const mailbox = sqliteTable(
     isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
     // A verified Email Routing destination that also gets a copy of its mail.
     forwardTo: text('forward_to').notNull().default(''),
+    // Picked when writing from it; none when empty.
+    signatureId: integer('signature_id').references(() => signature.id, { onDelete: 'set null' }),
     createdAt: text('created_at').notNull().default(now),
   },
   (t) => [index('mailbox_domain').on(t.domainId)],
+)
+
+// The file library: anything uploaded to send, attached or as a download
+// link. The bytes are in R2 at files/<token>, uploaded in parts (R2 multipart)
+// so their size is not limited by what one request can carry; until the last
+// part is in it is 'uploading', and the cron clears what was abandoned.
+// Anyone with its address (/f/<token>/<name>) can download it.
+export const file = sqliteTable(
+  'file',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // Without one, it is offered for every domain.
+    domainId: integer('domain_id').references(() => domain.id, { onDelete: 'cascade' }),
+    // Unguessable: the secret in its public address.
+    token: text('token').notNull().unique(),
+    name: text('name').notNull(),
+    contentType: text('content_type').notNull().default('application/octet-stream'),
+    size: integer('size').notNull(),
+    status: text('status', { enum: ['uploading', 'ready'] }).notNull().default('uploading'),
+    // R2's multipart upload, while uploading.
+    uploadId: text('upload_id'),
+    downloads: integer('downloads').notNull().default(0),
+    lastDownloadAt: text('last_download_at'),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('file_domain').on(t.domainId), index('file_status').on(t.status, t.createdAt)],
 )
 
 // Every email sent or received here.
@@ -216,9 +267,6 @@ export const pendingSubscription = sqliteTable(
 export const BROADCAST_STATUSES = ['draft', 'queued', 'sending', 'sent', 'canceled'] as const
 export type BroadcastStatus = (typeof BROADCAST_STATUSES)[number]
 
-export const BODY_FORMATS = ['text', 'html'] as const
-export type BodyFormat = (typeof BODY_FORMATS)[number]
-
 export const broadcast = sqliteTable(
   'broadcast',
   {
@@ -371,6 +419,8 @@ export type Segment = typeof segment.$inferSelect
 export type SubscribeForm = typeof subscribeForm.$inferSelect
 export type Broadcast = typeof broadcast.$inferSelect
 export type Template = typeof template.$inferSelect
+export type Signature = typeof signature.$inferSelect
+export type FileRow = typeof file.$inferSelect
 export type AiProvider = typeof aiProvider.$inferSelect
 export type ApiKey = typeof apiKey.$inferSelect
 export type Webhook = typeof webhook.$inferSelect

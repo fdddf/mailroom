@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import type { AppEnv, Env } from '../../env'
+import { publicBase } from '../../lib/files'
 
 export const MEDIA_PREFIX = 'media/'
 const MAX_BYTES = 5 * 1024 * 1024
@@ -12,7 +13,7 @@ const MAX_BYTES = 5 * 1024 * 1024
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }
 
 // On PUBLIC_URL, which is where recipients can reach it.
-const mediaUrl = (env: Env, requestUrl: string, name: string) => `${(env.PUBLIC_URL || new URL(requestUrl).origin).replace(/\/$/, '')}/media/${name}`
+const mediaUrl = (env: Env, requestUrl: string, name: string) => `${publicBase(env, requestUrl)}/media/${name}`
 
 export const mediaRoutes = new Hono<AppEnv>()
   // The raw image as the request body (PUT, so the JSON-only rule for POST

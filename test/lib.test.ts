@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
+import { composeBody } from '../src/worker/lib/compose'
+import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
 import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
 import { bareAddress, domainOf, fillVariables, isDomainName, parseAddressList } from '../src/worker/lib/text'
@@ -31,7 +33,7 @@ describe('deleteAttachments', () => {
 
   it('stays within what R2 takes in one delete', async () => {
     const del = vi.fn(async (_keys: string[]) => {})
-    await deleteAttachments(bucket(del), Array.from({ length: 2001 }, (_, i) => `k${i}`))
+    await deleteAttachments(bucket(del), Array.from({ length: 2001 }, (_, i) => `mail/1/x/${i}`))
     expect(del.mock.calls.map(([keys]) => keys.length)).toEqual([1000, 1000, 1])
   })
 
@@ -39,12 +41,21 @@ describe('deleteAttachments', () => {
     const del = vi.fn(async (_keys: string[]) => {})
     await deleteAttachments(bucket(del), [])
     expect(del).not.toHaveBeenCalled()
-    await expect(deleteAttachments({}, ['k'])).resolves.toBeUndefined()
+    await expect(deleteAttachments({}, ['mail/k'])).resolves.toBeUndefined()
+  })
+
+  it('never deletes files of the library that sent mail lists', async () => {
+    const del = vi.fn(async (_keys: string[]) => {})
+    await deleteAttachments(bucket(del), ['files/abc', 'media/x.png', 'mail/1/u/0'])
+    expect(del.mock.calls).toEqual([[['mail/1/u/0']]])
+    del.mockClear()
+    await deleteAttachments(bucket(del), ['files/abc'])
+    expect(del).not.toHaveBeenCalled()
   })
 
   it('logs a failure instead of throwing', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(deleteAttachments(bucket(() => Promise.reject(new Error('down'))), ['k'])).resolves.toBeUndefined()
+    await expect(deleteAttachments(bucket(() => Promise.reject(new Error('down'))), ['mail/k'])).resolves.toBeUndefined()
     expect(log).toHaveBeenCalledOnce()
     log.mockRestore()
   })
@@ -179,5 +190,90 @@ describe('sign-up forms', () => {
     expect(mail.html).toContain('A &lt;b&gt; &amp; Co')
     expect(mail.html).toContain('href="https://m.example.com/c/abc"')
     expect(mail.text).toContain('https://m.example.com/c/abc')
+  })
+})
+
+describe('composeBody', () => {
+  const link = { name: 'video.mp4', size: 3 * 1024 ** 3, url: 'https://m.example.com/f/abc/video.mp4' }
+
+  it('leaves plain text alone without extras', () => {
+    expect(composeBody({ message: { format: 'text', body: ' Hi there \n' } })).toEqual({ text: 'Hi there' })
+  })
+
+  it('adds links, then the signature, then the quote, in plain text', () => {
+    const { text, html } = composeBody({
+      message: { format: 'text', body: 'Here it is.' },
+      links: [link],
+      signature: { format: 'text', body: 'Ann\nExample Ltd' },
+      quote: { attribution: 'On 2026-11-01, Bob wrote:', text: 'Send it?\nThanks' },
+    })
+    expect(html).toBeUndefined()
+    expect(text).toBe(
+      'Here it is.\n\nFiles:\n- video.mp4 (3.0 GB): https://m.example.com/f/abc/video.mp4\n\n-- \nAnn\nExample Ltd\n\nOn 2026-11-01, Bob wrote:\n> Send it?\n> Thanks',
+    )
+  })
+
+  it('makes HTML when the signature is HTML, escaping the plain parts', () => {
+    const { text, html } = composeBody({ message: { format: 'text', body: 'a < b' }, signature: { format: 'html', body: '<b>Ann</b>' } })
+    expect(html).toContain('a &lt; b')
+    expect(html).toContain('<b>Ann</b>')
+    // One wrapper around message and signature alike.
+    expect(html!.trim().endsWith('</div>\n</div>')).toBe(true)
+    expect(html!.match(/max-width:600px/g)).toHaveLength(1)
+    expect(text).toBe('a < b\n\n-- \nAnn')
+  })
+
+  it('adds escaped links and a text signature to HTML', () => {
+    const { text, html } = composeBody({
+      message: { format: 'html', body: '<p>Hello</p>' },
+      links: [{ ...link, name: '<x>.zip' }],
+      signature: { format: 'text', body: 'Ann & co' },
+    })
+    expect(html!.startsWith('<p>Hello</p>')).toBe(true)
+    expect(html).toContain('&lt;x&gt;.zip')
+    expect(html).toContain('Ann &amp; co')
+    expect(text).toContain('- <x>.zip (3.0 GB): https://m.example.com/f/abc/video.mp4')
+  })
+
+  it('skips an empty signature', () => {
+    expect(composeBody({ message: { format: 'text', body: 'Hi' }, signature: { format: 'html', body: '  ' } })).toEqual({ text: 'Hi' })
+  })
+})
+
+describe('files', () => {
+  it('splits uploads into equal parts but the last', () => {
+    expect(partCount(1)).toBe(1)
+    expect(partCount(PART_SIZE)).toBe(1)
+    expect(partCount(PART_SIZE + 1)).toBe(2)
+    expect(partBytes(PART_SIZE + 1, 1)).toBe(PART_SIZE)
+    expect(partBytes(PART_SIZE + 1, 2)).toBe(1)
+    expect(partBytes(5, 1)).toBe(5)
+    expect(partCount(MAX_FILE_BYTES)).toBe(10_000)
+  })
+
+  it('reads Range headers', () => {
+    expect(parseRange(undefined, 100)).toBeNull()
+    expect(parseRange('bytes=0-9', 100)).toEqual({ start: 0, end: 9 })
+    expect(parseRange('bytes=90-', 100)).toEqual({ start: 90, end: 99 })
+    expect(parseRange('bytes=50-500', 100)).toEqual({ start: 50, end: 99 })
+    expect(parseRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 })
+    expect(parseRange('bytes=-500', 100)).toEqual({ start: 0, end: 99 })
+    expect(parseRange('bytes=100-', 100)).toBe('unsatisfiable')
+    expect(parseRange('bytes=9-3', 100)).toBe('unsatisfiable')
+    expect(parseRange('bytes=-0', 100)).toBe('unsatisfiable')
+    // Several ranges, other units, nonsense: the whole file.
+    expect(parseRange('bytes=0-1,5-6', 100)).toBeNull()
+    expect(parseRange('items=0-1', 100)).toBeNull()
+    expect(parseRange('bytes=-', 100)).toBeNull()
+  })
+
+  it('names and links files safely', () => {
+    expect(cleanFileName('../../etc/passwd')).toBe('.._.._etc_passwd')
+    expect(cleanFileName('a\u0000b\nc.txt')).toBe('abc.txt')
+    expect(cleanFileName('   ')).toBe('file')
+    expect(fileUrl('https://m.example.com', { token: 'abc', name: 'Q3 report #2.pdf' })).toBe('https://m.example.com/f/abc/Q3%20report%20%232.pdf')
+    expect(formatBytes(500)).toBe('500 B')
+    expect(formatBytes(1536)).toBe('1.5 KB')
+    expect(formatBytes(250 * 1024 * 1024)).toBe('250 MB')
   })
 })

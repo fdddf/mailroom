@@ -3,6 +3,7 @@ import { useDisclosure, useLocalStorage, useMediaQuery } from '@mantine/hooks'
 import {
   IconAddressBook,
   IconAt,
+  IconFiles,
   IconInbox,
   IconLayoutDashboard,
   IconLayoutSidebarLeftCollapse,
@@ -13,6 +14,7 @@ import {
   IconPencil,
   IconPhoto,
   IconSend,
+  IconSignature,
   IconSparkles,
   IconSpeakerphone,
   IconSun,
@@ -28,11 +30,13 @@ import { BroadcastsPage } from '../pages/Broadcasts'
 import { ComposePage } from '../pages/Compose'
 import { ContactsPage } from '../pages/Contacts'
 import { DomainsPage } from '../pages/Domains'
+import { FilesPage } from '../pages/Files'
 import { InboxPage } from '../pages/Inbox'
 import { MailboxesPage } from '../pages/Mailboxes'
 import { MediaPage } from '../pages/Media'
 import { OverviewPage } from '../pages/Overview'
 import { SentPage } from '../pages/Sent'
+import { SignaturesPage } from '../pages/Signatures'
 import { AiPage } from '../pages/Ai'
 import { TemplatesPage } from '../pages/Templates'
 import { TabContext } from './tabs'
@@ -50,7 +54,9 @@ const GROUPS: { label: string; sections: Section[] }[] = [
       { to: '/sent', label: 'Sent', icon: IconSend, route: '/sent/:id?', page: <SentPage /> },
       { to: '/compose', label: 'Compose', icon: IconPencil, route: '/compose', page: <ComposePage /> },
       { to: '/templates', label: 'Templates', icon: IconTemplate, route: '/templates/:id?', page: <TemplatesPage /> },
+      { to: '/signatures', label: 'Signatures', icon: IconSignature, route: '/signatures/:id?', page: <SignaturesPage /> },
       { to: '/images', label: 'Images', icon: IconPhoto, route: '/images', page: <MediaPage /> },
+      { to: '/files', label: 'Files', icon: IconFiles, route: '/files', page: <FilesPage /> },
     ],
   },
   {

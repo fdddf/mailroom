@@ -2,6 +2,7 @@
 // (the EMAIL binding) from an address on one of our domains, and comes in
 // through the Worker's email() handler, which files it with storeInbound.
 
+import type { EmailAttachment } from '@cloudflare/workers-types'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import type { Db } from '../db'
 import { domain, mail, mailbox, type Attachment } from '../db/schema'
@@ -13,10 +14,12 @@ export const emailConfigured = (env: Env) => Boolean(env.EMAIL)
 // R2 takes at most this many keys in one delete.
 const R2_DELETE_LIMIT = 1000
 
-// Remove attachments from R2. The email is already gone by now, so a failure
-// here leaves orphaned objects, not an error to show.
-export async function deleteAttachments(env: Pick<Env, 'BUCKET'>, keys: string[]) {
-  if (!env.BUCKET) return
+// Remove the attachments of received mail from R2. The email is already gone
+// by now, so a failure here leaves orphaned objects, not an error to show.
+// Only mail/… keys: what sent mail lists is the file library's, and stays.
+export async function deleteAttachments(env: Pick<Env, 'BUCKET'>, allKeys: string[]) {
+  const keys = allKeys.filter((k) => k.startsWith('mail/'))
+  if (!env.BUCKET || !keys.length) return
   try {
     for (let i = 0; i < keys.length; i += R2_DELETE_LIMIT) await env.BUCKET.delete(keys.slice(i, i + R2_DELETE_LIMIT))
   } catch (err) {
@@ -67,6 +70,7 @@ export type SendRequest = {
   text?: string
   html?: string
   headers?: Record<string, string>
+  attachments?: EmailAttachment[]
 }
 export type SendResponse = { ok: true; messageId: string } | { ok: false; code: string; message: string }
 
@@ -84,6 +88,7 @@ export const deliver = async (env: Env, m: SendRequest): Promise<SendResponse> =
       ...(m.text && { text: m.text }),
       ...(m.html && { html: m.html }),
       ...(m.headers && { headers: m.headers }),
+      ...(m.attachments?.length && { attachments: m.attachments }),
     })
     return { ok: true, messageId: result.messageId }
   } catch (err) {
@@ -107,6 +112,9 @@ export type Outgoing = {
   html?: string
   replyTo?: string
   headers?: Record<string, string>
+  // Files from the library: attached when `content` is there, else already
+  // linked in the body. All are listed on the recorded email.
+  files?: (Attachment & { content?: ArrayBuffer })[]
   // Who sent it: 'dashboard' or 'api:<key name>'.
   source: string
   // false for tests that do not belong in the Sent list.
@@ -124,7 +132,11 @@ export const sendMail = async (env: Env, db: Db, m: Outgoing): Promise<SendResul
   if (!from) return { ok: false, status: 400, error: m.from ? 'unknown_sender' : 'no_mailbox' }
   const cc = m.cc ?? []
 
-  const result = await deliver(env, { from, to: m.to, cc, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html, headers: m.headers })
+  const files = m.files ?? []
+  const attachments = files.flatMap((f): EmailAttachment[] =>
+    f.content ? [{ disposition: 'attachment', filename: f.filename || 'file', type: f.content_type, content: f.content }] : [],
+  )
+  const result = await deliver(env, { from, to: m.to, cc, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html, headers: m.headers, attachments })
   if (!result.ok) return { ok: false, status: 424, error: 'send_failed', message: `${result.code}: ${result.message}` }
 
   let mailId: number | null = null
@@ -146,6 +158,7 @@ export const sendMail = async (env: Env, db: Db, m: Outgoing): Promise<SendResul
         subject: m.subject,
         text: m.text ?? null,
         html: m.html ?? null,
+        attachments: files.map(({ content: _, ...meta }) => meta),
         status: 'sent',
       })
       .onConflictDoNothing({ target: mail.key })

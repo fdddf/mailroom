@@ -4,10 +4,11 @@
 // asked for.
 import { Anchor, Badge, Box, Button, Group, Paper, Select, Stack, Text, Textarea } from '@mantine/core'
 import { getHotkeyHandler } from '@mantine/hooks'
-import { IconPaperclip } from '@tabler/icons-react'
-import { useState } from 'react'
-import { fmtFull, type Session } from '../hooks'
+import { IconLink, IconPaperclip } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
+import { fmtFull, useScope, type Session } from '../hooks'
 import { AiAssist } from './editor'
+import { Attachments, SignatureSelect, attachmentsFit, mailboxSignature, toPicks, type PickedFile } from './files'
 import { DeliveryBadge } from './ui'
 import classes from '../dashboard.module.css'
 
@@ -22,7 +23,7 @@ export type MailView = {
   subject: string
   text: string | null
   hasHtml: boolean
-  attachments: { id: string; filename: string | null; size: number }[]
+  attachments: { id: string; filename: string | null; size: number; link?: string }[]
   status: string
 }
 
@@ -124,10 +125,12 @@ export function MailCard({ mail, collapse = false }: { mail: MailView; collapse?
                 target="_blank"
                 rel="noopener"
                 variant="default"
-                leftSection={<IconPaperclip size={12} />}
+                // Sent as a download link rather than attached.
+                leftSection={a.link ? <IconLink size={12} /> : <IconPaperclip size={12} />}
+                title={a.link ? `Sent as a link: ${a.link}` : undefined}
                 style={{ cursor: 'pointer', textTransform: 'none' }}
               >
-                {a.filename || 'attachment'} ({Math.max(1, Math.round(a.size / 1024))} KB)
+                {a.filename || 'attachment'} ({formatSize(a.size)})
               </Badge>
             ))}
           </Group>
@@ -136,6 +139,8 @@ export function MailCard({ mail, collapse = false }: { mail: MailView; collapse?
     </Paper>
   )
 }
+
+const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
 type Mailboxes = Session['mailboxes']
 const senderLabel = (m: Mailboxes[number]) => (m.name ? `${m.name} <${m.address}>` : m.address)
@@ -173,8 +178,11 @@ export function FromSelect({
 export const initialSender = (mailboxes: Mailboxes, preferred?: string | null) =>
   mailboxes.find((m) => m.address === preferred)?.address ?? mailboxes.find((m) => m.isDefault)?.address ?? mailboxes[0]?.address ?? ''
 
+// What a reply box sends.
+export type ReplyDraft = { message: string; from: string | undefined; signatureId: number | null; attachments: { fileId: number; link: boolean }[] }
+
 // Reply box: first action is the default (⌘/Ctrl+Enter). The sender can be
-// changed when there is more than one mailbox.
+// changed when there is more than one mailbox; the signature follows it.
 export function Composer({
   heading,
   placeholder,
@@ -185,21 +193,28 @@ export function Composer({
 }: {
   heading: string
   placeholder: string
-  actions: { label: string; primary?: boolean; send: (text: string, from: string | undefined) => Promise<unknown> }[]
+  actions: { label: string; primary?: boolean; send: (draft: ReplyDraft) => Promise<unknown> }[]
   mailboxes: Mailboxes
   defaultFrom?: string | null
   // The email being answered, for the AI assistant's draft.
   aiContext?: string
 }) {
+  const { session } = useScope()
   const [text, setText] = useState('')
   const [from, setFrom] = useState(() => initialSender(mailboxes, defaultFrom))
+  const [files, setFiles] = useState<PickedFile[]>([])
+  const fromSignature = mailboxSignature(mailboxes, from)
+  const [signatureId, setSignatureId] = useState<number | null>(fromSignature)
+  useEffect(() => setSignatureId(fromSignature), [from, fromSignature])
+  const fits = attachmentsFit(files, session?.attachLimit ?? Infinity)
   const [busy, setBusy] = useState(-1)
   const run = async (i: number) => {
-    if (!text.trim() || busy >= 0) return
+    if (!text.trim() || busy >= 0 || !fits) return
     setBusy(i)
     try {
-      await actions[i].send(text, from || undefined)
+      await actions[i].send({ message: text, from: from || undefined, signatureId, attachments: toPicks(files) })
       setText('')
+      setFiles([])
     } catch {
       // Shown by the mutation's error toast.
     } finally {
@@ -236,9 +251,15 @@ export function Composer({
         maxRows={16}
         onKeyDown={getHotkeyHandler([['mod+Enter', () => run(0)]])}
       />
+      <Group justify="space-between" align="flex-start" gap="xs">
+        <Box style={{ flex: 1, minWidth: 240 }}>
+          <Attachments value={files} onChange={setFiles} compact />
+        </Box>
+        <SignatureSelect value={signatureId} onChange={setSignatureId} size="xs" preview={false} />
+      </Group>
       <Group gap="xs">
         {actions.map((a, i) => (
-          <Button key={a.label} variant={a.primary ? 'filled' : 'default'} loading={busy === i} disabled={!text.trim() || (busy >= 0 && busy !== i)} onClick={() => run(i)}>
+          <Button key={a.label} variant={a.primary ? 'filled' : 'default'} loading={busy === i} disabled={!text.trim() || !fits || (busy >= 0 && busy !== i)} onClick={() => run(i)}>
             {a.label}
           </Button>
         ))}

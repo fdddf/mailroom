@@ -91,6 +91,15 @@ const MESSAGES: Record<string, string> = {
   invalid_name: 'Add a name.',
   segment_required: 'Choose a segment.',
   attachment_unavailable: 'The attachment is not available right now.',
+  file_too_large: 'That file is too big to upload.',
+  attachments_too_large: 'Too much to attach to one email: send some of the files as links.',
+  too_many_files: 'One email can carry at most 20 files.',
+  unknown_file: 'One of the files is no longer in the library.',
+  file_unavailable: 'One of the files could not be read from storage.',
+  upload_incomplete: 'The upload did not complete. Please try again.',
+  bad_part: 'Part of the upload arrived damaged. Please try again.',
+  upload_canceled: 'Upload canceled.',
+  unknown_signature: 'That signature no longer exists.',
 }
 
 export const errorText = (err: unknown) => {
@@ -149,5 +158,82 @@ export async function stream(path: string, json: unknown, on: (event: string, da
         // Not ours to read.
       }
     }
+  }
+}
+
+// ---- The file library: any size, uploaded in parts ---------------------------
+
+export type LibraryFile = Awaited<ReturnType<typeof call<Awaited<ReturnType<typeof api.files.$get>>>>>['items'][number]
+
+// One part, with upload progress (fetch has none), retried a couple of times.
+function putPart(id: number, n: number, body: Blob, onProgress: (loaded: number) => void, signal: AbortSignal) {
+  const once = () =>
+    new Promise<{ partNumber: number; etag: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', `/api/admin/files/${id}/parts/${n}`)
+      for (const [k, v] of Object.entries(domainHeaders())) xhr.setRequestHeader(k, v)
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+      xhr.upload.onprogress = (e) => onProgress(e.loaded)
+      xhr.onload = () => {
+        let data: { partNumber?: number; etag?: string; error?: string } = {}
+        try {
+          data = JSON.parse(xhr.responseText)
+        } catch {
+          // Not ours (a proxy page): the status says enough.
+        }
+        if (xhr.status >= 200 && xhr.status < 300 && data.etag) resolve({ partNumber: data.partNumber ?? n, etag: data.etag })
+        else reject(new ApiError(data.error ?? 'request_failed', xhr.status, data.error ? '' : `HTTP ${xhr.status}`))
+      }
+      xhr.onerror = () => reject(new ApiError('network_error', 0))
+      xhr.onabort = () => reject(new ApiError('upload_canceled', 0))
+      signal.addEventListener('abort', () => xhr.abort(), { once: true })
+      xhr.send(body)
+    })
+  return (async () => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await once()
+      } catch (err) {
+        const retry = err instanceof ApiError && (err.status === 0 || err.status >= 500) && err.code !== 'upload_canceled'
+        if (!retry || attempt >= 3 || signal.aborted) throw err
+        onProgress(0)
+        await new Promise((r) => setTimeout(r, 1000 * attempt))
+      }
+    }
+  })()
+}
+
+// Upload a file into the library, a few parts at a time; `onProgress` gets
+// the bytes sent so far. A failed or canceled upload is cleared away.
+export async function uploadFile(file: File, onProgress: (sent: number) => void, outer: AbortSignal) {
+  // One part failing stops the others.
+  const stop = new AbortController()
+  const signal = stop.signal
+  outer.addEventListener('abort', () => stop.abort(), { once: true })
+  const { id, partSize, parts } = await call(api.files.$post({ json: { name: file.name, type: file.type || 'application/octet-stream', size: file.size } }))
+  const param = { id: String(id) }
+  const sent = new Array<number>(parts).fill(0)
+  const done: { partNumber: number; etag: string }[] = []
+  let next = 1
+  const lane = async () => {
+    while (next <= parts && !signal.aborted) {
+      const n = next++
+      const blob = file.slice((n - 1) * partSize, Math.min(file.size, n * partSize))
+      done.push(
+        await putPart(id, n, blob, (loaded) => {
+          sent[n - 1] = loaded
+          onProgress(sent.reduce((a, b) => a + b, 0))
+        }, signal),
+      )
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, parts) }, lane))
+    if (signal.aborted) throw new ApiError('upload_canceled', 0)
+    return await call(api.files[':id'].complete.$post({ param, json: { parts: done } }))
+  } catch (err) {
+    stop.abort()
+    await call(api.files[':id'].$delete({ param })).catch(() => {})
+    throw outer.aborted ? new ApiError('upload_canceled', 0) : err
   }
 }

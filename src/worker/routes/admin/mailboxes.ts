@@ -5,7 +5,7 @@
 import { and, asc, count, desc, eq, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { domain, mail, mailbox } from '../../db/schema'
+import { domain, mail, mailbox, signature } from '../../db/schema'
 import type { AppEnv } from '../../env'
 import { domainOf, isEmail } from '../../lib/text'
 import { validate } from '../../lib/validate'
@@ -57,17 +57,27 @@ export const mailboxRoutes = new Hono<AppEnv>()
     },
   )
 
-  // Rename, forward, or make it its domain's default sender (each domain has exactly one).
+  // Rename, forward, give it a signature (null for none), or make it its
+// domain's default sender (each domain has exactly one).
   .patch(
     '/:id',
     validate('param', idParam),
-    validate('json', z.object({ name, forwardTo, isDefault: z.literal(true) }).partial().refine((v) => Object.keys(v).length > 0, 'nothing_to_update')),
+    validate(
+      'json',
+      z
+        .object({ name, forwardTo, signatureId: z.number().int().positive().nullable(), isDefault: z.literal(true) })
+        .partial()
+        .refine((v) => Object.keys(v).length > 0, 'nothing_to_update'),
+    ),
     async (c) => {
       const { id } = c.req.valid('param')
       const { isDefault, ...body } = c.req.valid('json')
       const db = c.var.db
       const row = await db.query.mailbox.findFirst({ columns: { id: true, domainId: true }, where: eq(mailbox.id, id) })
       if (!row) return c.json({ error: 'not_found' }, 404)
+      if (body.signatureId && !(await db.query.signature.findFirst({ columns: { id: true }, where: eq(signature.id, body.signatureId) }))) {
+        return c.json({ error: 'unknown_signature' }, 400)
+      }
       if (Object.keys(body).length) await db.update(mailbox).set(body).where(eq(mailbox.id, id))
       if (isDefault) {
         await db.batch([
