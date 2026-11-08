@@ -113,7 +113,7 @@ export function InboxPage() {
               .filter(Boolean)
               .join(' · ')}
             snippet={m.snippet}
-            check={{ checked: ticked.has(m.id), onChange: (on) => tick(m.id, on), label: `Select email from ${m.fromAddr}` }}
+            check={picked.length ? { checked: ticked.has(m.id), onChange: (on) => tick(m.id, on), label: `Select email from ${m.fromAddr}` } : undefined}
           />
         ))}
       </ListPanel>

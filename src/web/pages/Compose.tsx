@@ -75,7 +75,7 @@ export function ComposePage() {
           <FromSelect mailboxes={mailboxes} value={from} onChange={setFrom} />
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <TextInput label="To" placeholder="Separate addresses with commas" value={form.to} onChange={(e) => set('to')(e.currentTarget.value)} required />
-            <TextInput label="Cc" description="Optional" placeholder="Separate addresses with commas" value={form.cc} onChange={(e) => set('cc')(e.currentTarget.value)} />
+            <TextInput label={<>Cc <Text span size="sm" c="dimmed" fw={400}>(optional)</Text></>} placeholder="Separate addresses with commas" value={form.cc} onChange={(e) => set('cc')(e.currentTarget.value)} />
           </SimpleGrid>
           <TextInput label="Subject" value={form.subject} onChange={(e) => set('subject')(e.currentTarget.value)} maxLength={300} required />
           <BodyEditor
