@@ -4,6 +4,7 @@ import { useMediaQuery } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
 import { IconArrowLeft, IconArrowUpRight, IconCheck, IconCopy } from '@tabler/icons-react'
 import type { MouseEvent, ReactNode } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router'
 import { setDomain } from '../domain'
 import { fmt, useSession } from '../hooks'
@@ -95,9 +96,8 @@ export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail
     )
   }
   return (
-    <Box style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: 'var(--mantine-spacing-md)', alignItems: 'start' }}>
-      {list}
-      <Paper withBorder p="lg" miw={0} pos="relative">
+    <SplitPanes list={list}>
+      <Paper withBorder p="lg" miw={0} pos="relative" style={{ height: '100%', overflow: 'auto' }}>
         {ownTab}
         {detail ?? (
           <Text c="dimmed" size="sm">
@@ -105,6 +105,35 @@ export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail
           </Text>
         )}
       </Paper>
+    </SplitPanes>
+  )
+}
+
+// Two columns that each fill the rest of the viewport and scroll on their own,
+// so scrolling the detail never moves the list.
+function SplitPanes({ list, children }: { list: ReactNode; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => {
+      if (el.offsetParent === null) return // inside a hidden tab
+      const top = el.getBoundingClientRect().top
+      el.style.height = `${Math.max(320, window.innerHeight - Math.max(top, 0) - 16)}px`
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    window.addEventListener('resize', fit)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', fit)
+    }
+  }, [])
+  return (
+    <Box ref={ref} style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: 'var(--mantine-spacing-md)', alignItems: 'stretch', minHeight: 0 }}>
+      <Box style={{ overflow: 'auto', minHeight: 0 }}>{list}</Box>
+      {children}
     </Box>
   )
 }
