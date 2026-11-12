@@ -50,7 +50,7 @@ export function AiPage() {
   const editing = form?.id != null
 
   return (
-    <Stack maw={920}>
+    <Stack>
       <PageHeader title="AI">
         <Button onClick={() => setForm(blank)}>Add provider</Button>
       </PageHeader>

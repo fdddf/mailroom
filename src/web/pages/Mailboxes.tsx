@@ -38,7 +38,7 @@ export function MailboxesPage() {
   }
 
   return (
-    <Stack maw={920}>
+    <Stack>
       <PageHeader title="Mailboxes" />
       {session && !session.canEmail && <Alert color="yellow">Sending is not set up: add the send_email binding named EMAIL (wrangler.jsonc).</Alert>}
       {session && !session.domains.length && (

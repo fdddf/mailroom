@@ -34,7 +34,7 @@ export function BlockRulesPage() {
   return (
     <>
       <PageHeader title="Spam filter" />
-      <Stack maw={720}>
+      <Stack>
         <Text size="sm" c="dimmed">
           Mail that matches a rule is filed under Archived, already read, with no push notification, webhook or forward. Nothing is deleted, so a wrong catch is one click away.
         </Text>

@@ -77,7 +77,7 @@ export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail
   )
   if (tab?.solo) {
     return (
-      <Paper withBorder p="lg" maw={980}>
+      <Paper withBorder p="lg">
         {detail}
       </Paper>
     )
