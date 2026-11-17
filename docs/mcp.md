@@ -34,7 +34,7 @@ If ChatGPT says the client metadata cannot be read, choose dynamic client regist
 
 ## Keys and permissions
 
-The same API keys as the [integration API](api.md), or an app's OAuth connection: either works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain (`mailroom-example`, `mailroom-shop`, …), each with its own key or connection.
+The same API keys as the [integration API](api.md), or an app's OAuth connection: either works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain (`mailroom-example`, `mailroom-shop`, …), each with its own key or connection. Each server names its domain in its title, in what it tells the assistant, and at the start of every tool's description, so the assistant can tell them apart; naming the domain in a request (*"…for shop.example"*) helps it pick.
 
 | Scope | Tools |
 | --- | --- |

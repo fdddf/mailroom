@@ -33,7 +33,9 @@ const MAX_ADD = 1000
 type Caller = AppEnv['Variables']['caller']
 type Ctx = { env: Env; db: AppEnv['Variables']['db']; domain: Domain; key: Caller; origin: string }
 
-const INSTRUCTIONS = `Mailroom: email for one domain (the API key's). Call get_domain first to see the domain, its mailboxes and what this key may do.
+// The domain is named up front: someone with several domains adds one server
+// per domain, and the assistant has to tell them apart.
+const instructions = (domain: string) => `Mailroom: email for ${domain}, and only ${domain}; other domains are other servers. Every tool here reads or changes ${domain}: when the user names another domain, use that domain's server instead. Call get_domain to see the mailboxes, segments and what this connection may do.
 
 Bulk email goes out as a broadcast, never as many send_email calls: a broadcast sends each subscriber of a segment their own copy, with an unsubscribe link, and skips everyone who unsubscribed, bounced or complained.
 1. add_contacts to put people in a segment (only people who agreed to receive this email).
@@ -98,8 +100,14 @@ const draftFields = {
 // Which OAuth scope a tool needs, as ChatGPT reads it from the tool list.
 const oauthScope = (scope?: ApiScope) => ({ securitySchemes: [{ type: 'oauth2', scopes: scope ? [scope] : [] }] })
 
-const register = (server: McpServer, x: Ctx) => {
+const register = (mcp: McpServer, x: Ctx) => {
   const may = (scope: ApiScope) => x.key.scopes.includes(scope)
+  // Every tool description starts with the domain, so that the same tool of
+  // two servers (two domains) reads differently.
+  const server = {
+    registerTool: ((name: string, config: { description?: string }, cb: unknown) =>
+      mcp.registerTool(name, { ...config, description: `[${x.domain.name}] ${config.description ?? ''}` } as never, cb as never)) as McpServer['registerTool'],
+  }
 
   server.registerTool(
     'get_domain',
@@ -540,7 +548,9 @@ export const mcpRoutes = new Hono<AppEnv>()
   .delete('/', notAllowed)
   .use(mcpAuth)
   .post('/', async (c) => {
-    const server = new McpServer({ name: 'mailroom', version: '0.1.0' }, { instructions: INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
+    const server = new McpServer(
+      { name: 'mailroom', title: `Mailroom · ${c.var.domain!.name}`, version: '0.1.0' },
+      { instructions: instructions(c.var.domain!.name), jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
     register(server, { env: c.env, db: c.var.db, domain: c.var.domain!, key: c.var.caller, origin: new URL(c.req.url).origin })
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     await server.connect(transport)
