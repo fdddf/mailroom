@@ -18,6 +18,7 @@ A key works for **one domain** and the permissions (scopes) it was given:
 | --- | --- |
 | `send` | `POST /v1/send`, `GET /v1/mail/:id` |
 | `contacts` | the `/v1/contacts` endpoints |
+| `broadcasts` | Nothing in `/v1`: broadcasts through the [MCP server](mcp.md) |
 
 Keys are secrets: use them from servers only, never in a browser or a shipped app. Revoking a key takes effect immediately.
 

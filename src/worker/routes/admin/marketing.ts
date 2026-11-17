@@ -2,21 +2,20 @@
 // Cloudflare Email Sending. Response shapes are snake_case with string ids,
 // as { data, has_more }.
 
-import { and, asc, count, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Db } from '../../db'
-import { BODY_FORMATS, broadcast, broadcastRecipient, contact, contactSegment, domain, segment, type Broadcast, type Contact } from '../../db/schema'
+import { BODY_FORMATS, broadcast, broadcastRecipient, contact, contactSegment, segment, type Broadcast, type Contact } from '../../db/schema'
 import type { AppEnv } from '../../env'
-import { broadcastBodies, footerText, newToken } from '../../lib/broadcast'
-import { emailConfigured, resolveSender, sendMail } from '../../lib/mailer'
+import { cancelBroadcast, placeBroadcast, previewHtml, queueBroadcast, sendTestBroadcast } from '../../lib/broadcast'
+import { importContacts, upsertContact } from '../../lib/contacts'
+import { emailConfigured } from '../../lib/mailer'
 import { isEmail } from '../../lib/text'
 import { emptyBody, validate } from '../../lib/validate'
 import { domainRequired, idParam, inDomain } from './shared'
 
 const PAGE = 100
-// D1 allows 100 bound parameters per statement; a contact row takes 5.
-const INSERT_CHUNK = 18
 const MAX_IMPORT = 5000
 
 const id = z.coerce.number({ error: 'invalid_id' }).int('invalid_id').positive('invalid_id')
@@ -36,19 +35,6 @@ const contactView = (c: Contact) => ({
 // The segment, if it is one of the domain's.
 const segmentOf = (db: Db, segmentId: number, domainId: number) =>
   db.query.segment.findFirst({ columns: { id: true, domainId: true }, where: and(eq(segment.id, segmentId), eq(segment.domainId, domainId)) })
-
-// Add (or find) a contact on a domain. Adding someone again only fills in
-// their name; it never resubscribes them. Shared with the /v1 API.
-export const upsertContact = async (db: Db, domainId: number, b: { email: string; firstName?: string; lastName?: string }) => {
-  await db
-    .insert(contact)
-    .values({ domainId, email: b.email, firstName: b.firstName ?? '', lastName: b.lastName ?? '', token: newToken() })
-    .onConflictDoUpdate({
-      target: [contact.domainId, contact.email],
-      set: { ...(b.firstName && { firstName: b.firstName }), ...(b.lastName && { lastName: b.lastName }), email: b.email },
-    })
-  return (await db.query.contact.findFirst({ where: and(eq(contact.domainId, domainId), eq(contact.email, b.email)) }))!
-}
 
 export const contactRoutes = new Hono<AppEnv>()
   // Newest first; `after` is the last id of the previous page.
@@ -91,7 +77,7 @@ export const contactRoutes = new Hono<AppEnv>()
     const { text, segmentId } = c.req.valid('json')
     const db = c.var.db
     if (segmentId && !(await segmentOf(db, segmentId, d.id))) return c.json({ error: 'unknown_segment' }, 400)
-    const rows = new Map<string, { domainId: number; email: string; firstName: string; lastName: string; token: string }>()
+    const rows = new Map<string, { email: string; firstName: string; lastName: string }>()
     let invalid = 0
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue
@@ -99,22 +85,10 @@ export const contactRoutes = new Hono<AppEnv>()
       const address = email.toLowerCase()
       // A header row is not an error.
       if (!isEmail(address)) invalid += address === 'email' ? 0 : 1
-      else rows.set(address, { domainId: d.id, email: address, firstName: firstName.slice(0, 100), lastName: lastName.slice(0, 100), token: newToken() })
+      else rows.set(address, { email: address, firstName, lastName })
     }
     if (rows.size > MAX_IMPORT) return c.json({ error: 'too_many_contacts' }, 400)
-    const list = [...rows.values()]
-    const before = await db.$count(contact, eq(contact.domainId, d.id))
-    for (let i = 0; i < list.length; i += INSERT_CHUNK) {
-      const chunk = list.slice(i, i + INSERT_CHUNK)
-      await db.insert(contact).values(chunk).onConflictDoNothing({ target: [contact.domainId, contact.email] })
-      if (segmentId) {
-        await db.run(sql`
-          INSERT OR IGNORE INTO contact_segment (contact_id, segment_id)
-          SELECT id, ${segmentId} FROM contact WHERE domain_id = ${d.id} AND email IN (${sql.join(chunk.map((r) => sql`${r.email}`), sql`, `)})`)
-      }
-    }
-    const added = (await db.$count(contact, eq(contact.domainId, d.id))) - before
-    return c.json({ added, existing: list.length - added, invalid })
+    return c.json({ ...(await importContacts(db, d.id, [...rows.values()], segmentId ? [segmentId] : [])), invalid })
   })
   .patch('/:id', validate('param', idParam), validate('json', z.object({ unsubscribed: z.boolean(), firstName: optionalName, lastName: optionalName }).partial()), async (c) => {
     const b = c.req.valid('json')
@@ -214,18 +188,6 @@ const broadcastView = (b: Broadcast) => ({
   failed: b.failed,
 })
 
-// A broadcast belongs to the domain of its segment, and goes out from one of
-// that domain's mailboxes.
-const placeBroadcast = async (db: Db, segmentId: number, from: string | undefined) => {
-  const seg = await db.query.segment.findFirst({ columns: { domainId: true }, where: eq(segment.id, segmentId) })
-  if (!seg) return { error: 'unknown_segment' as const }
-  const sender = await resolveSender(db, { address: from, domainId: seg.domainId })
-  if (!sender) return { error: from ? ('unknown_sender' as const) : ('no_mailbox' as const) }
-  return { domainId: seg.domainId, fromAddr: sender.email }
-}
-
-const domainFooter = async (db: Db, domainId: number) => footerText((await db.query.domain.findFirst({ where: eq(domain.id, domainId) }))!)
-
 export const broadcastRoutes = new Hono<AppEnv>()
   .get('/', async (c) => {
     const rows = await c.var.db.select().from(broadcast).where(inDomain(c, broadcast.domainId)).orderBy(desc(broadcast.id)).limit(200)
@@ -253,19 +215,8 @@ export const broadcastRoutes = new Hono<AppEnv>()
       const { to, from, segmentId, ...draft } = c.req.valid('json')
       const db = c.var.db
       const domainId = segmentId ? (await db.query.segment.findFirst({ columns: { domainId: true }, where: eq(segment.id, segmentId) }))?.domainId : c.var.domain?.id
-      const sender = await resolveSender(db, { address: from, domainId })
-      if (!sender) return c.json({ error: from ? 'unknown_sender' : 'no_mailbox' }, 400)
-      const recipient = to || sender.email
-      if (!isEmail(recipient)) return c.json({ error: 'invalid_to' }, 400)
-      const sent = await sendMail(c.env, db, {
-        from: sender.email,
-        to: [recipient],
-        // No real link outside a broadcast; placeholders show sample values.
-        ...broadcastBodies({ ...draft, subject: `[Test] ${draft.subject}` }, await domainFooter(db, sender.domainId), '#', { email: recipient, firstName: 'Alex', lastName: 'Sample' }),
-        source: 'dashboard',
-        record: false,
-      })
-      return sent.ok ? c.json({ ok: true }) : c.json({ error: sent.error, message: sent.message }, sent.status)
+      const sent = await sendTestBroadcast(c.env, db, draft, { from, domainId, to, source: 'dashboard' })
+      return sent.ok ? c.json({ ok: true }) : c.json({ error: sent.error, message: 'message' in sent ? sent.message : undefined }, sent.status)
     },
   )
   // Plus `html`, as a subscriber sees it (with a dead unsubscribe link), and
@@ -280,8 +231,7 @@ export const broadcastRoutes = new Hono<AppEnv>()
       .from(broadcastRecipient)
       .where(and(eq(broadcastRecipient.broadcastId, bid), eq(broadcastRecipient.status, 'failed')))
       .limit(50)
-    const html = broadcastBodies(row, await domainFooter(db, row.domainId), '#', { email: 'you@example.com', firstName: 'Alex', lastName: 'Sample' }).html
-    return c.json({ ...broadcastView(row), html, failures })
+    return c.json({ ...broadcastView(row), html: await previewHtml(db, row), failures })
   })
   // Drafts only.
   .patch('/:id', validate('param', idParam), validate('json', broadcastInput), async (c) => {
@@ -311,37 +261,14 @@ export const broadcastRoutes = new Hono<AppEnv>()
     const db = c.var.db
     const row = await db.query.broadcast.findFirst({ where: eq(broadcast.id, c.req.valid('param').id) })
     if (!row) return c.json({ error: 'not_found' }, 404)
-    if (row.status !== 'draft') return c.json({ error: 'not_a_draft' }, 409)
-    if (!row.segmentId) return c.json({ error: 'segment_required' }, 400)
-    const [{ n }] = await db
-      .select({ n: count() })
-      .from(contactSegment)
-      .innerJoin(contact, eq(contact.id, contactSegment.contactId))
-      .where(and(eq(contactSegment.segmentId, row.segmentId), eq(contact.unsubscribed, false)))
-    if (!n) return c.json({ error: 'empty_segment' }, 400)
-    await db
-      .update(broadcast)
-      .set({ status: 'queued', scheduledAt: scheduledAt ?? null, publicUrl: new URL(c.req.url).origin })
-      .where(and(eq(broadcast.id, row.id), eq(broadcast.status, 'draft')))
-    return c.json({ id: String(row.id), recipients: n })
+    const queued = await queueBroadcast(db, row, scheduledAt, new URL(c.req.url).origin)
+    if (queued.error) return c.json({ error: queued.error }, queued.status)
+    return c.json({ id: String(row.id), recipients: queued.recipients })
   })
   // A queued one goes back to being a draft; one that is going out stops, and
   // whoever has not received it yet never will.
   .post('/:id/cancel', validate('param', idParam), emptyBody(), async (c) => {
     const { id: bid } = c.req.valid('param')
-    const db = c.var.db
-    const [queued] = await db
-      .update(broadcast)
-      .set({ status: 'draft', scheduledAt: null })
-      .where(and(eq(broadcast.id, bid), eq(broadcast.status, 'queued')))
-      .returning({ id: broadcast.id })
-    if (queued) return c.json({ id: String(bid), status: 'draft' as const })
-    const [stopped] = await db
-      .update(broadcast)
-      .set({ status: 'canceled', sentAt: new Date().toISOString() })
-      .where(and(eq(broadcast.id, bid), eq(broadcast.status, 'sending')))
-      .returning({ id: broadcast.id })
-    if (!stopped) return c.json({ error: 'not_cancelable' }, 409)
-    await db.delete(broadcastRecipient).where(and(eq(broadcastRecipient.broadcastId, bid), eq(broadcastRecipient.status, 'pending')))
-    return c.json({ id: String(bid), status: 'canceled' as const })
+    const done = await cancelBroadcast(c.var.db, bid)
+    return done ? c.json({ id: String(bid), status: done.status }) : c.json({ error: 'not_cancelable' }, 409)
   })

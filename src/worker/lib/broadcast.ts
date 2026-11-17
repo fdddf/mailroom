@@ -5,8 +5,10 @@
 
 import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from '../db'
-import { broadcast, broadcastRecipient, contact, domain, type BodyFormat, type Domain } from '../db/schema'
-import { resolveSender, type SendRequest, type SendResponse } from './mailer'
+import { broadcast, broadcastRecipient, contact, domain, segment, type BodyFormat, type Domain } from '../db/schema'
+import type { Env } from '../env'
+import { resolveSender, sendMail, type SendRequest, type SendResponse } from './mailer'
+import { isEmail } from './text'
 import { fillVariables, htmlToText, textToHtml } from './text'
 
 export const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -189,3 +191,91 @@ export const suppressContact = (db: Db, email: string, domainId?: number) =>
     .update(contact)
     .set({ unsubscribed: true })
     .where(and(eq(contact.email, email.trim().toLowerCase()), domainId ? eq(contact.domainId, domainId) : undefined))
+
+// ---- Drafts, queueing and canceling ------------------------------------------
+// Shared by the dashboard and the MCP server; callers check that the
+// broadcast or segment is one they may touch.
+
+// Subscribed contacts of a segment: who a broadcast to it would reach.
+export const subscriberCount = (db: Db, segmentId: number) =>
+  db.$count(
+    contact,
+    and(eq(contact.unsubscribed, false), sql`EXISTS (SELECT 1 FROM contact_segment cs WHERE cs.contact_id = ${contact.id} AND cs.segment_id = ${segmentId})`),
+  )
+
+// A broadcast belongs to the domain of its segment, and goes out from one of
+// that domain's mailboxes.
+export const placeBroadcast = async (db: Db, segmentId: number, from: string | undefined) => {
+  const seg = await db.query.segment.findFirst({ columns: { domainId: true }, where: eq(segment.id, segmentId) })
+  if (!seg) return { error: 'unknown_segment' as const }
+  const sender = await resolveSender(db, { address: from, domainId: seg.domainId })
+  if (!sender) return { error: from ? ('unknown_sender' as const) : ('no_mailbox' as const) }
+  return { domainId: seg.domainId, fromAddr: sender.email }
+}
+
+export const domainFooter = async (db: Db, domainId: number) => footerText((await db.query.domain.findFirst({ where: eq(domain.id, domainId) }))!)
+
+// Sample values for the placeholders where there is no real subscriber.
+const SAMPLE = { firstName: 'Alex', lastName: 'Sample' }
+
+// The HTML a subscriber would get, with a dead unsubscribe link.
+export const previewHtml = async (db: Db, b: typeof broadcast.$inferSelect) =>
+  broadcastBodies(b, await domainFooter(db, b.domainId), '#', { email: 'you@example.com', ...SAMPLE }).html
+
+// Send a draft as a normal email (default: to its sender) to check it.
+export const sendTestBroadcast = async (
+  env: Env,
+  db: Db,
+  draft: { subject: string; message: string; format: BodyFormat; previewText?: string },
+  { from, domainId, to, source }: { from?: string; domainId?: number; to?: string; source: string },
+) => {
+  const sender = await resolveSender(db, { address: from, domainId })
+  if (!sender) return { ok: false as const, status: 400 as const, error: from ? 'unknown_sender' : 'no_mailbox' }
+  const recipient = to || sender.email
+  if (!isEmail(recipient)) return { ok: false as const, status: 400 as const, error: 'invalid_to' }
+  const sent = await sendMail(env, db, {
+    from: sender.email,
+    to: [recipient],
+    // No real link outside a broadcast; placeholders show sample values.
+    ...broadcastBodies({ ...draft, subject: `[Test] ${draft.subject}` }, await domainFooter(db, sender.domainId), '#', { email: recipient, ...SAMPLE }),
+    source,
+    record: false,
+  })
+  return sent.ok ? { ok: true as const, to: recipient } : sent
+}
+
+// Queue a draft: now, or at `scheduledAt` (ISO date). The cron picks it up
+// within a minute and sends it in batches. `publicUrl` is where the
+// unsubscribe links will point.
+export const queueBroadcast = async (db: Db, row: typeof broadcast.$inferSelect, scheduledAt: string | undefined, publicUrl: string) => {
+  if (row.status !== 'draft') return { error: 'not_a_draft' as const, status: 409 as const }
+  if (!row.segmentId) return { error: 'segment_required' as const, status: 400 as const }
+  const recipients = await subscriberCount(db, row.segmentId)
+  if (!recipients) return { error: 'empty_segment' as const, status: 400 as const }
+  const queued = await db
+    .update(broadcast)
+    .set({ status: 'queued', scheduledAt: scheduledAt ?? null, publicUrl })
+    .where(and(eq(broadcast.id, row.id), eq(broadcast.status, 'draft')))
+    .returning({ id: broadcast.id })
+  if (!queued.length) return { error: 'not_a_draft' as const, status: 409 as const }
+  return { recipients }
+}
+
+// A queued one goes back to being a draft; one that is going out stops, and
+// whoever has not received it yet never will.
+export const cancelBroadcast = async (db: Db, id: number) => {
+  const [queued] = await db
+    .update(broadcast)
+    .set({ status: 'draft', scheduledAt: null })
+    .where(and(eq(broadcast.id, id), eq(broadcast.status, 'queued')))
+    .returning({ id: broadcast.id })
+  if (queued) return { status: 'draft' as const }
+  const [stopped] = await db
+    .update(broadcast)
+    .set({ status: 'canceled', sentAt: new Date().toISOString() })
+    .where(and(eq(broadcast.id, id), eq(broadcast.status, 'sending')))
+    .returning({ id: broadcast.id })
+  if (!stopped) return null
+  await db.delete(broadcastRecipient).where(and(eq(broadcastRecipient.broadcastId, id), eq(broadcastRecipient.status, 'pending')))
+  return { status: 'canceled' as const }
+}

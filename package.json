@@ -26,11 +26,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
+    "@cfworker/json-schema": "^4.1.6",
     "@hono/zod-validator": "^0.9.1",
     "@mantine/core": "^9.6.3",
     "@mantine/hooks": "^9.6.3",
     "@mantine/modals": "^9.6.3",
     "@mantine/notifications": "^9.6.3",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@tabler/icons-react": "^3.48.0",
     "@tanstack/react-query": "^5.104.0",
     "drizzle-orm": "^0.45.3",

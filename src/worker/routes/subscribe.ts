@@ -20,7 +20,7 @@ import { decryptSecret, sha256Hex } from '../lib/crypto'
 import { emailConfigured, resolveSender, sendMail } from '../lib/mailer'
 import { confirmationEmail, confirmUrl, isLocalOrigin, verifyTurnstile } from '../lib/subscribe'
 import { isEmail } from '../lib/text'
-import { upsertContact } from './admin/marketing'
+import { upsertContact } from '../lib/contacts'
 import { escapeHtml, page } from './public'
 
 const TOKEN = /^[0-9a-f]{20,64}$/

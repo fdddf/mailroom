@@ -6,25 +6,26 @@
 //
 // Keys are secrets: call this from a server, never from a browser.
 
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { getDb } from '../db'
-import { apiKey, contact, contactSegment, domain, mail, mailbox, segment, type ApiScope, type Contact } from '../db/schema'
+import { apiKey, contact, domain, mail, mailbox, type ApiScope, type Contact } from '../db/schema'
 import type { AppEnv } from '../env'
+import { addToSegments, ensureSegments, segmentNamesOf, upsertContact } from '../lib/contacts'
 import { sha256Hex } from '../lib/crypto'
 import { emailConfigured, sendMail } from '../lib/mailer'
 import { htmlToText, isEmail, parseAddressList } from '../lib/text'
 import { validate } from '../lib/validate'
-import { upsertContact } from './admin/marketing'
 
 // Headers a caller may set on an email; the rest are Email Sending's.
-const ALLOWED_HEADER = /^(x-[a-z0-9-]+|in-reply-to|references|list-unsubscribe|list-unsubscribe-post|list-id)$/i
+export const ALLOWED_HEADER = /^(x-[a-z0-9-]+|in-reply-to|references|list-unsubscribe|list-unsubscribe-post|list-id)$/i
 // last_used_at is written at most this often per key.
 const TOUCH_MS = 60_000
 
-const auth = createMiddleware<AppEnv>(async (c, next) => {
+// Also guards /mcp (routes/mcp.ts).
+export const apiKeyAuth = createMiddleware<AppEnv>(async (c, next) => {
   const token = (c.req.header('Authorization') || '').match(/^Bearer\s+(mr_[A-Za-z0-9_-]+)$/)?.[1]
   if (!token) return c.json({ error: 'unauthorized', message: 'Send the API key as Authorization: Bearer mr_…' }, 401)
   const db = getDb(c.env.DB)
@@ -47,7 +48,7 @@ const auth = createMiddleware<AppEnv>(async (c, next) => {
 const forbidden = (c: Context<AppEnv>, scope: ApiScope) =>
   c.var.apiKey.scopes.includes(scope) ? null : c.json({ error: 'forbidden', message: `This key lacks the "${scope}" scope` }, 403)
 
-const recipients = (code: string) =>
+export const recipients = (code: string) =>
   z
     .union([z.string(), z.array(z.string())])
     .optional()
@@ -105,19 +106,10 @@ const contactView = (row: Contact, segments: string[]) => ({
   createdAt: row.createdAt,
 })
 
-const segmentsOf = async (db: AppEnv['Variables']['db'], contactId: number) =>
-  (
-    await db
-      .select({ name: segment.name })
-      .from(contactSegment)
-      .innerJoin(segment, eq(segment.id, contactSegment.segmentId))
-      .where(eq(contactSegment.contactId, contactId))
-  ).map((s) => s.name)
-
 const emailParam = z.object({ email: z.string().trim().toLowerCase().refine(isEmail, 'invalid_email') })
 
 export const v1Routes = new Hono<AppEnv>()
-  .use(auth)
+  .use(apiKeyAuth)
 
   // Which domain this key is for, and its addresses: a quick check of a key.
   .get('/domain', async (c) => {
@@ -173,26 +165,15 @@ export const v1Routes = new Hono<AppEnv>()
     if (resubscribe && row.unsubscribed) {
       ;[row] = await db.update(contact).set({ unsubscribed: false }).where(eq(contact.id, row.id)).returning()
     }
-    if (names.length) {
-      const unique = [...new Set(names)]
-      await db.insert(segment).values(unique.map((name) => ({ domainId, name }))).onConflictDoNothing()
-      const ids = await db
-        .select({ id: segment.id })
-        .from(segment)
-        .where(and(eq(segment.domainId, domainId), inArray(segment.name, unique)))
-      await db
-        .insert(contactSegment)
-        .values(ids.map((s) => ({ contactId: row!.id, segmentId: s.id })))
-        .onConflictDoNothing()
-    }
-    return c.json(contactView(row!, await segmentsOf(db, row!.id)))
+    await addToSegments(db, row!.id, await ensureSegments(db, domainId, names))
+    return c.json(contactView(row!, await segmentNamesOf(db, row!.id)))
   })
 
   .get('/contacts/:email', validate('param', emailParam), async (c) => {
     const denied = forbidden(c, 'contacts')
     if (denied) return denied
     const row = await c.var.db.query.contact.findFirst({ where: and(eq(contact.domainId, c.var.domain!.id), eq(contact.email, c.req.valid('param').email)) })
-    return row ? c.json(contactView(row, await segmentsOf(c.var.db, row.id))) : c.json({ error: 'not_found' }, 404)
+    return row ? c.json(contactView(row, await segmentNamesOf(c.var.db, row.id))) : c.json({ error: 'not_found' }, 404)
   })
 
   // They stay on file, marked unsubscribed, so a later import cannot add them back.

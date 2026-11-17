@@ -13,6 +13,7 @@
 - **编辑器**：纯文本 / HTML 可视化编辑、图片库、模板、可选的 AI 写作助手（Claude 或任何 OpenAI 兼容接口）
 - **订阅表单**：把表单贴到任意网站即可收集订阅，不需要后端；用 Turnstile 防机器人，并通过确认邮件做双重确认
 - **对接 API**：每个域名独立的 API key，其它系统可以调用 `/v1` 发信、管理联系人；收到邮件或投递状态变化时回调签名的 webhook
+- **MCP 服务**：让 Claude Code 等 AI 助手添加联系人、起草 / 测试 / 发送群发，或发单封邮件（`/mcp`）
 
 ## 部署
 
@@ -43,7 +44,7 @@ npx wrangler secret put ADMIN_PASSWORD
 
 想用自己的域名访问后台，在 Worker 的 **Settings → Domains & Routes** 添加。邮件里的退订链接默认使用排队群发时后台所在的地址；要固定地址，就在 **Variables and Secrets** 里设置 `PUBLIC_URL`。
 
-建议在后台前面加 Cloudflare Access（保护 `/` 和 `/api/admin/*`，`/v1/*`、`/u/*`、`/media/*`、`/f/*`、`/subscribe/*` 保持公开）。
+建议在后台前面加 Cloudflare Access（保护 `/` 和 `/api/admin/*`，`/v1/*`、`/mcp`、`/u/*`、`/media/*`、`/f/*`、`/subscribe/*` 保持公开）。
 
 单封邮件上限 25 MiB（含附件，附件编码后约增大三分之一），所以最多 17 MiB 的文件作为附件发送；更大的文件以下载链接（`/f/<token>/<文件名>`）发送，持有链接的人都能下载，在 **Files** 里删除文件后链接失效。
 
@@ -69,6 +70,17 @@ curl https://mailroom.example.com/v1/send \
 ```
 
 需要处理来信的系统（例如客服工单）在域名页面添加 webhook，收信时会收到带 HMAC 签名的 `mail.received` 事件，里面有 `messageId`、`inReplyTo`、`references`，可以据此把回信归到对应的工单。完整说明见 [docs/api.md](docs/api.md)。
+
+## 让 AI 助手来操作（MCP）
+
+创建 API key 时勾选助手需要的权限（`contacts` 管理联系人、`send` 发单封、`broadcasts` 群发），然后在 Claude Code 里添加：
+
+```bash
+claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
+  --header "Authorization: Bearer mr_…"
+```
+
+批量发信一律走群发（Broadcast），和后台一样带退订链接、跳过已退订和退信的联系人；群发要先建草稿，发送时必须带上用户确认过的收件人数，人数变了会被拒绝。工具列表和防误发机制见 [docs/mcp.md](docs/mcp.md)。
 
 ## 本地开发
 

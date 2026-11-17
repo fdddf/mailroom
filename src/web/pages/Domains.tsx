@@ -33,7 +33,7 @@ const WORKER = 'mailroom'
 const QUEUE = 'mailroom-events'
 const SENDING_EVENTS = ['delivered', 'deferred', 'bounced', 'failed', 'rejected', 'complained'].map((e) => `message.${e}`).join(',')
 
-const SCOPES = { send: 'Send email', contacts: 'Manage contacts' } as const
+const SCOPES = { send: 'Send email', contacts: 'Manage contacts', broadcasts: 'Broadcasts (MCP)' } as const
 const EVENTS = { 'mail.received': 'Mail received', 'mail.status': 'Delivery status' } as const
 
 // Our domains: add one, then everything needed to bring it online and to let
@@ -307,6 +307,8 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
           <Copyable value={key} />
           <Text size="sm">Try it:</Text>
           <Copyable value={`curl ${base}/v1/domain -H "Authorization: Bearer ${key}"`} />
+          <Text size="sm">Or add it to Claude Code:</Text>
+          <Copyable value={`claude mcp add --transport http mailroom ${base}/mcp --header "Authorization: Bearer ${key}"`} />
         </Stack>
       ),
     })
@@ -316,7 +318,8 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
       title="API keys"
       description={
         <>
-          For your own servers and apps, to send email from {name} and manage its contacts through the API ({base}/v1, see docs/api.md). A key works for this domain only.
+          For your own servers and apps, to send email from {name} and manage its contacts through the API ({base}/v1, see docs/api.md), or for an AI assistant through MCP ({base}/mcp, see
+          docs/mcp.md). A key works for this domain only.
         </>
       }
     >

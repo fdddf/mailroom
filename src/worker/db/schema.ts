@@ -382,8 +382,8 @@ export const aiProvider = sqliteTable('ai_provider', {
 
 // ---- Integration: API keys and webhooks ---------------------------------------
 
-// What an API key may do through /v1 (docs/api.md).
-export const API_SCOPES = ['send', 'contacts'] as const
+// What an API key may do through /v1 and /mcp (docs/api.md, docs/mcp.md).
+export const API_SCOPES = ['send', 'contacts', 'broadcasts'] as const
 export type ApiScope = (typeof API_SCOPES)[number]
 
 // A key for /v1, good for one domain. Only its hash is kept; the key itself

@@ -11,6 +11,7 @@ A self-hosted mail center for your own domains, running entirely on your Cloudfl
 - **Editor**: plain text or HTML with a visual editor, an image library, templates, and an optional AI writing assistant (Claude or any OpenAI-compatible API).
 - **Sign-up forms**: paste a form into any website, with no server: Turnstile bot protection and double opt-in by email.
 - **Integration API**: per-domain API keys to send email and manage contacts from your other systems (`/v1`), and signed webhooks when mail arrives or a delivery status changes.
+- **MCP server**: let an AI assistant such as Claude Code add contacts, draft, test and send broadcasts, or send an email (`/mcp`).
 
 Everything is one Worker: the dashboard is served as static assets, and there is no server to run.
 
@@ -50,7 +51,7 @@ Open the Worker's address, sign in, and add your first domain under **Domains**.
 
 To use your own hostname, add it under the Worker's **Settings → Domains & Routes**. Unsubscribe links use the address the dashboard was on when a broadcast was queued; set the variable `PUBLIC_URL` under **Variables and Secrets** to fix one address instead.
 
-It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/u/*`, `/media/*`, `/f/*` and `/subscribe/*` public).
+It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/mcp`, `/u/*`, `/media/*`, `/f/*` and `/subscribe/*` public).
 
 ## Adding a domain
 
@@ -74,6 +75,17 @@ curl https://mailroom.example.com/v1/send \
 ```
 
 Sending, contacts and webhooks are documented in [docs/api.md](docs/api.md).
+
+## Using it from an AI assistant
+
+Make a key with the scopes the assistant should have (`contacts`, `send`, `broadcasts`), then, for Claude Code:
+
+```bash
+claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
+  --header "Authorization: Bearer mr_…"
+```
+
+Bulk email goes out as a broadcast, with unsubscribe links and suppression as from the dashboard; a broadcast is only sent once its recipient count has been confirmed. Tools and safeguards: [docs/mcp.md](docs/mcp.md).
 
 ## Development
 
