@@ -93,6 +93,9 @@ export const sha256Hex = async (s: string) => toHex(await crypto.subtle.digest('
 // Random URL-safe text with `bytes` bytes of entropy.
 export const randomToken = (bytes = 24) => toBase64Url(crypto.getRandomValues(new Uint8Array(bytes)))
 
+// The PKCE S256 challenge of a code verifier (RFC 7636): base64url of its SHA-256.
+export const pkceChallenge = async (verifier: string) => toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(verifier))))
+
 // A new /v1 key: what to show once, what to keep, and how to recognise it.
 export const newApiKey = async () => {
   const key = `mr_${randomToken(24)}`

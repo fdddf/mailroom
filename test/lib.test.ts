@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
@@ -6,6 +6,7 @@ import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { composeBody } from '../src/worker/lib/compose'
 import { embedImages, mediaImages, pointToInline } from '../src/worker/lib/inline'
 import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
+import { checkClientMetadata, isMetadataUrl, parseScopes, pickRedirectUri, resourceMatches, validRedirectUri, verifyPkce, wwwAuthenticate } from '../src/worker/lib/oauth'
 import { findBlockRule } from '../src/worker/lib/spam'
 import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
@@ -317,5 +318,65 @@ describe('findBlockRule', () => {
   it('leaves other mail alone', () => {
     expect(findBlockRule(rules, mail('good@spam.io'))).toBeNull()
     expect(findBlockRule(rules, mail('a@notkiev.ua'))).toBeNull()
+  })
+})
+
+describe('oauth', () => {
+  const origin = 'https://mail.example.com'
+
+  it('takes https redirects, or http on this computer only', () => {
+    for (const ok of ['https://chatgpt.com/connector_platform_oauth_redirect', 'http://localhost:3334/callback', 'http://127.0.0.1/cb']) expect(validRedirectUri(ok)).toBe(true)
+    for (const bad of ['http://evil.com/cb', 'https://a.com/cb#x', 'javascript:alert(1)', 'https://user:pw@a.com/', 'not a url']) expect(validRedirectUri(bad)).toBe(false)
+  })
+
+  it('keeps only known scopes, all of them when none are asked for', () => {
+    expect(parseScopes('contacts openid broadcasts')).toEqual(['contacts', 'broadcasts'])
+    expect(parseScopes('')).toEqual(['send', 'contacts', 'broadcasts'])
+    expect(parseScopes('openid')).toEqual([])
+  })
+
+  it('accepts this server as the resource, and nothing else', () => {
+    expect(resourceMatches(undefined, origin)).toBe(true)
+    expect(resourceMatches(`${origin}/mcp`, origin)).toBe(true)
+    expect(resourceMatches(`${origin}/`, origin)).toBe(true)
+    expect(resourceMatches('https://other.example.com/mcp', origin)).toBe(false)
+    expect(resourceMatches(`${origin}/v1`, origin)).toBe(false)
+  })
+
+  it('checks PKCE S256', async () => {
+    const verifier = 'a'.repeat(20) + '-._~' + 'Z9'.repeat(10)
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+    expect(await verifyPkce(verifier, challenge)).toBe(true)
+    expect(await verifyPkce(verifier + 'x', challenge)).toBe(false)
+    // Too short to be a verifier at all.
+    expect(await verifyPkce('abc', createHash('sha256').update('abc').digest('base64url'))).toBe(false)
+  })
+
+  it('trusts a client metadata document only for its own URL', () => {
+    const url = 'https://chatgpt.com/oauth/client.json'
+    const doc = { client_id: url, client_name: 'ChatGPT', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'] }
+    expect(checkClientMetadata(doc, url)).toEqual({ ok: true, name: 'ChatGPT', redirectUris: doc.redirect_uris })
+    expect(checkClientMetadata({ ...doc, client_id: 'https://evil.example/client.json' }, url).ok).toBe(false)
+    expect(checkClientMetadata({ ...doc, redirect_uris: ['http://evil.example/cb'] }, url).ok).toBe(false)
+    expect(checkClientMetadata({ ...doc, client_secret: 'x' }, url).ok).toBe(false)
+    expect(checkClientMetadata(null, url).ok).toBe(false)
+  })
+
+  it('tells metadata URLs from registered client ids', () => {
+    expect(isMetadataUrl('https://chatgpt.com/oauth/client.json')).toBe(true)
+    for (const no of ['mrc_abc', 'https://chatgpt.com/', 'http://chatgpt.com/c.json', 'https://localhost/c.json', 'https://a.com:8443/c.json']) expect(isMetadataUrl(no)).toBe(false)
+  })
+
+  it('sends codes only to a registered redirect', () => {
+    const client = { redirectUris: ['https://a.com/cb'] } as Parameters<typeof pickRedirectUri>[0]
+    expect(pickRedirectUri(client, undefined)).toBe('https://a.com/cb')
+    expect(pickRedirectUri(client, 'https://a.com/cb')).toBe('https://a.com/cb')
+    expect(pickRedirectUri(client, 'https://a.com/cb2')).toBeNull()
+    expect(pickRedirectUri({ ...client, redirectUris: ['https://a.com/1', 'https://a.com/2'] }, undefined)).toBeNull()
+  })
+
+  it('points a 401 at the resource metadata', () => {
+    expect(wwwAuthenticate(origin)).toBe(`Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="send contacts broadcasts"`)
+    expect(wwwAuthenticate(origin, 'invalid_token')).toContain('error="invalid_token"')
   })
 })

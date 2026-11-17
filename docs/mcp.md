@@ -16,11 +16,25 @@ claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
 
 Add `--scope user` to have it in every project, rather than only the current one. Then ask, for example: *"Add these people to the newsletter segment and draft a broadcast announcing the new pricing."*
 
-Any other MCP client that can send an `Authorization` header connects the same way. Clients that only offer OAuth (ChatGPT, claude.ai connectors) are not supported yet.
+Any other MCP client that can send an `Authorization` header connects the same way.
+
+## Connecting ChatGPT, claude.ai and other apps that sign in
+
+Apps that cannot send a header sign in with OAuth instead; Mailroom is its own OAuth server, and there is nothing to set up beforehand.
+
+1. Add `https://mailroom.example.com/mcp` as a custom connector (ChatGPT: with developer mode on, in its apps/connectors settings; claude.ai: in its connectors settings). Choose OAuth if asked.
+2. A Mailroom page opens: pick the **domain**, untick anything the app should not do, and enter the **dashboard password**.
+3. The app is connected to that domain. It is listed under **Connected apps** on the domain's page, where **Disconnect** signs it out at once.
+
+One connection is one domain; connect again for another. Access tokens last an hour and are renewed by the app; a connection not used for 30 days lapses.
+
+What it implements, for the curious: MCP authorization (2025-11-25): protected resource metadata at `/.well-known/oauth-protected-resource/mcp` (and at the root), authorization server metadata at `/.well-known/oauth-authorization-server`, client ID metadata documents (what ChatGPT prefers) and dynamic client registration at `/oauth/register` (what Claude uses), authorization code with PKCE S256 only, `resource` checked, `iss` in every authorization response, and refresh tokens rotated on every use. Codes and tokens are random and kept only as hashes.
+
+If ChatGPT says the client metadata cannot be read, choose dynamic client registration in its connector settings instead.
 
 ## Keys and permissions
 
-The same API keys as the [integration API](api.md): a key works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain (`mailroom-example`, `mailroom-shop`, …), each with its own key.
+The same API keys as the [integration API](api.md), or an app's OAuth connection: either works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain (`mailroom-example`, `mailroom-shop`, …), each with its own key or connection.
 
 | Scope | Tools |
 | --- | --- |
@@ -69,4 +83,4 @@ Only add people who asked for your email: the law, and Cloudflare's terms for Em
 
 ## Cloudflare Access
 
-If Cloudflare Access protects the dashboard, leave `/mcp` public as you do `/v1/*`: the API key is its protection.
+If Cloudflare Access protects the dashboard, leave `/mcp`, `/oauth/register`, `/oauth/token` and `/.well-known/*` public as you do `/v1/*`: apps call them directly, and keys and tokens protect them. `/oauth/authorize` is the page you approve apps on, and can stay behind Access.

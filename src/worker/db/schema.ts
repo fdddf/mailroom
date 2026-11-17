@@ -434,6 +434,64 @@ export const webhook = sqliteTable(
   (t) => [index('webhook_domain').on(t.domainId)],
 )
 
+// ---- OAuth, for MCP clients that sign in (ChatGPT, claude.ai) -----------------
+// Mailroom is its own authorization server (lib/oauth.ts): someone who knows
+// the dashboard password approves an app for one domain and some scopes, and
+// the app gets tokens for /mcp. docs/mcp.md.
+
+// An app that asked to sign in: registered by itself (RFC 7591, `dcr`), or
+// known by the URL of its metadata document, which is its client id (`cimd`).
+export const oauthClient = sqliteTable('oauth_client', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // Random for a registered app; the metadata document's URL otherwise.
+  clientId: text('client_id').notNull().unique(),
+  kind: text('kind', { enum: ['dcr', 'cimd'] }).notNull(),
+  name: text('name').notNull().default(''),
+  redirectUris: text('redirect_uris', { mode: 'json' }).$type<string[]>().notNull(),
+  // SHA-256 of its secret, for a registered app that asked for one; empty
+  // for public clients, which prove themselves with PKCE alone.
+  secretHash: text('secret_hash').notNull().default(''),
+  // When a metadata document was last read.
+  fetchedAt: text('fetched_at'),
+  createdAt: text('created_at').notNull().default(now),
+})
+
+// One approval: this app may use /mcp for this domain with these scopes,
+// until it is disconnected in the dashboard or its refresh token expires.
+export const oauthGrant = sqliteTable(
+  'oauth_grant',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    clientId: integer('client_id')
+      .notNull()
+      .references(() => oauthClient.id, { onDelete: 'cascade' }),
+    domainId: integer('domain_id')
+      .notNull()
+      .references(() => domain.id, { onDelete: 'cascade' }),
+    scopes: text('scopes', { mode: 'json' }).$type<ApiScope[]>().notNull(),
+    lastUsedAt: text('last_used_at'),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('oauth_grant_domain').on(t.domainId), index('oauth_grant_client').on(t.clientId)],
+)
+
+// Codes and tokens of a grant, by the SHA-256 of their value.
+export const oauthToken = sqliteTable(
+  'oauth_token',
+  {
+    hash: text('hash').primaryKey(),
+    grantId: integer('grant_id')
+      .notNull()
+      .references(() => oauthGrant.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['code', 'access', 'refresh'] }).notNull(),
+    expiresAt: text('expires_at').notNull(),
+    // An authorization code's: where it was sent, and the PKCE challenge.
+    redirectUri: text('redirect_uri').notNull().default(''),
+    codeChallenge: text('code_challenge').notNull().default(''),
+  },
+  (t) => [index('oauth_token_grant').on(t.grantId), index('oauth_token_expires').on(t.expiresAt)],
+)
+
 export type Domain = typeof domain.$inferSelect
 export type Mail = typeof mail.$inferSelect
 export type Mailbox = typeof mailbox.$inferSelect
@@ -447,3 +505,4 @@ export type FileRow = typeof file.$inferSelect
 export type AiProvider = typeof aiProvider.$inferSelect
 export type ApiKey = typeof apiKey.$inferSelect
 export type Webhook = typeof webhook.$inferSelect
+export type OauthClient = typeof oauthClient.$inferSelect

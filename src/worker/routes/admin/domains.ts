@@ -6,7 +6,7 @@
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { API_SCOPES, WEBHOOK_EVENTS, apiKey, domain, file, mailbox, webhook, type ApiKey, type Webhook } from '../../db/schema'
+import { API_SCOPES, WEBHOOK_EVENTS, apiKey, domain, file, mailbox, oauthClient, oauthGrant, webhook, type ApiKey, type Webhook } from '../../db/schema'
 import type { AppEnv } from '../../env'
 import { newApiKey, randomToken } from '../../lib/crypto'
 import { checkDomain } from '../../lib/dns'
@@ -180,6 +180,25 @@ export const domainRoutes = new Hono<AppEnv>()
   .delete('/:id/keys/:keyId', validate('param', keyParam), async (c) => {
     const { id, keyId } = c.req.valid('param')
     const rows = await c.var.db.delete(apiKey).where(and(eq(apiKey.id, keyId), eq(apiKey.domainId, id))).returning({ id: apiKey.id })
+    return rows.length ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404)
+  })
+
+  // ---- Apps signed in with OAuth (MCP clients such as ChatGPT) ----
+
+  .get('/:id/apps', validate('param', idParam), async (c) => {
+    const rows = await c.var.db
+      .select({ id: oauthGrant.id, name: oauthClient.name, clientId: oauthClient.clientId, scopes: oauthGrant.scopes, createdAt: oauthGrant.createdAt, lastUsedAt: oauthGrant.lastUsedAt })
+      .from(oauthGrant)
+      .innerJoin(oauthClient, eq(oauthClient.id, oauthGrant.clientId))
+      .where(eq(oauthGrant.domainId, c.req.valid('param').id))
+      .orderBy(desc(oauthGrant.id))
+    return c.json({ items: rows })
+  })
+
+  // Its tokens go with it: the app is signed out at once.
+  .delete('/:id/apps/:grantId', validate('param', idParam.extend({ grantId: z.coerce.number().int().positive() })), async (c) => {
+    const { id, grantId } = c.req.valid('param')
+    const rows = await c.var.db.delete(oauthGrant).where(and(eq(oauthGrant.id, grantId), eq(oauthGrant.domainId, id))).returning({ id: oauthGrant.id })
     return rows.length ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404)
   })
 

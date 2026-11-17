@@ -146,6 +146,7 @@ function DomainDetail({ id }: { id: string }) {
       <Setup id={id} name={d.name} />
       <Settings key={`${d.id}-${d.brand}-${d.footer}-${d.about}-${d.catchAll}`} id={id} initial={d} />
       <ApiKeys id={id} name={d.name} />
+      <ConnectedApps id={id} />
       <Webhooks id={id} />
       <DeleteDomain id={id} name={d.name} />
     </Stack>
@@ -385,6 +386,76 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
           Create key
         </Button>
       </Group>
+    </Section>
+  )
+}
+
+// Apps that signed in with OAuth to use the MCP server for this domain.
+function ConnectedApps({ id }: { id: string }) {
+  const { data: session } = useSession()
+  const apps = useQuery({ queryKey: ['domain-apps', id], queryFn: () => call(api.domains[':id'].apps.$get({ param: { id } })) })
+  const revoke = useAction((grantId: number) => call(api.domains[':id'].apps[':grantId'].$delete({ param: { id, grantId: String(grantId) } })), {
+    invalidate: [['domain-apps', id]],
+    success: 'App disconnected',
+  })
+  const base = session?.publicUrl ?? 'https://mailroom.example.com'
+  const host = (clientId: string) => (clientId.startsWith('https://') ? new URL(clientId).host : '')
+
+  return (
+    <Section
+      title="Connected apps"
+      description={
+        <>
+          AI assistants that signed in to the MCP server for this domain, such as ChatGPT or Claude. Add <Code>{`${base}/mcp`}</Code> as a connector in the app; it asks for the
+          dashboard password, the domain and what it may do. See docs/mcp.md.
+        </>
+      }
+    >
+      {apps.data?.items.length ? (
+        <Paper withBorder style={{ overflowX: 'auto' }}>
+          <Table verticalSpacing="xs">
+            <Table.Tbody>
+              {apps.data.items.map((a) => (
+                <Table.Tr key={a.id}>
+                  <Table.Td>
+                    <Group gap={6}>
+                      <Text size="sm" fw={600}>
+                        {a.name || 'Unnamed app'}
+                      </Text>
+                      {host(a.clientId) && <Code>{host(a.clientId)}</Code>}
+                      {a.scopes.map((s) => (
+                        <Badge key={s} size="xs" variant="light">
+                          {s}
+                        </Badge>
+                      ))}
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      Connected {fmt(a.createdAt)} · {a.lastUsedAt ? `last used ${fmt(a.lastUsedAt)}` : 'not used yet'}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Button
+                      size="compact-sm"
+                      variant="subtle"
+                      color="red"
+                      onClick={async () =>
+                        (await confirm(`Disconnect “${a.name || 'this app'}”?`, 'It is signed out at once, and has to be approved again to come back.', { danger: true, label: 'Disconnect' })) &&
+                        revoke.mutate(a.id)
+                      }
+                    >
+                      Disconnect
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Paper>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {apps.isLoading ? 'Loading…' : 'No app is connected.'}
+        </Text>
+      )}
     </Section>
   )
 }

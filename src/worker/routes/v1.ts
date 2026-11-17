@@ -24,23 +24,31 @@ export const ALLOWED_HEADER = /^(x-[a-z0-9-]+|in-reply-to|references|list-unsubs
 // last_used_at is written at most this often per key.
 const TOUCH_MS = 60_000
 
-// Also guards /mcp (routes/mcp.ts).
-export const apiKeyAuth = createMiddleware<AppEnv>(async (c, next) => {
-  const token = (c.req.header('Authorization') || '').match(/^Bearer\s+(mr_[A-Za-z0-9_-]+)$/)?.[1]
-  if (!token) return c.json({ error: 'unauthorized', message: 'Send the API key as Authorization: Bearer mr_…' }, 401)
-  const db = getDb(c.env.DB)
+// The key and its domain, for a bearer token that is an API key; also used
+// by /mcp (routes/mcp.ts). Notes when it was used, now and then.
+export const findApiKey = async (c: Context<AppEnv>, db: AppEnv['Variables']['db'], token: string) => {
   const [row] = await db
     .select({ key: apiKey, domain })
     .from(apiKey)
     .innerJoin(domain, eq(domain.id, apiKey.domainId))
     .where(eq(apiKey.hash, await sha256Hex(token)))
+  if (row && (!row.key.lastUsedAt || Date.now() - Date.parse(row.key.lastUsedAt) > TOUCH_MS)) {
+    c.executionCtx.waitUntil(db.update(apiKey).set({ lastUsedAt: new Date().toISOString() }).where(eq(apiKey.id, row.key.id)).then(() => {}))
+  }
+  return row ?? null
+}
+
+export const API_KEY = /^Bearer\s+(mr_[A-Za-z0-9_-]+)$/
+
+const auth = createMiddleware<AppEnv>(async (c, next) => {
+  const token = (c.req.header('Authorization') || '').match(API_KEY)?.[1]
+  if (!token) return c.json({ error: 'unauthorized', message: 'Send the API key as Authorization: Bearer mr_…' }, 401)
+  const db = getDb(c.env.DB)
+  const row = await findApiKey(c, db, token)
   if (!row) return c.json({ error: 'unauthorized', message: 'Unknown or revoked API key' }, 401)
   c.set('db', db)
   c.set('domain', row.domain)
   c.set('apiKey', row.key)
-  if (!row.key.lastUsedAt || Date.now() - Date.parse(row.key.lastUsedAt) > TOUCH_MS) {
-    c.executionCtx.waitUntil(db.update(apiKey).set({ lastUsedAt: new Date().toISOString() }).where(eq(apiKey.id, row.key.id)).then(() => {}))
-  }
   return next()
 })
 
@@ -109,7 +117,7 @@ const contactView = (row: Contact, segments: string[]) => ({
 const emailParam = z.object({ email: z.string().trim().toLowerCase().refine(isEmail, 'invalid_email') })
 
 export const v1Routes = new Hono<AppEnv>()
-  .use(apiKeyAuth)
+  .use(auth)
 
   // Which domain this key is for, and its addresses: a quick check of a key.
   .get('/domain', async (c) => {

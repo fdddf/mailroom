@@ -2,28 +2,36 @@
 // or any MCP client that can send a header) can work with one of our
 // domains: add contacts, write and send broadcasts, send an email.
 //
-// It takes the same API keys as /v1 (Authorization: Bearer mr_…), good for
-// one domain; each tool needs the scope noted on it, and a key only sees the
-// tools it may use. Streamable HTTP, stateless: every POST is answered on its
-// own, with JSON. Reference: docs/mcp.md.
+// It takes the same API keys as /v1 (Authorization: Bearer mr_…), or an
+// OAuth access token from an app approved for a domain (routes/oauth.ts),
+// for clients that can only sign in (ChatGPT, claude.ai). Either is good for
+// one domain; each tool needs the scope noted on it, and a caller only sees
+// the tools it may use. Streamable HTTP, stateless: every POST is answered on
+// its own, with JSON. Reference: docs/mcp.md.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import { and, asc, desc, eq, like, lt, sql, type SQL } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
-import { BODY_FORMATS, broadcast, broadcastRecipient, contact, mailbox, segment, type ApiKey, type ApiScope, type Broadcast, type Domain } from '../db/schema'
+import { BODY_FORMATS, broadcast, broadcastRecipient, contact, mailbox, segment, type ApiScope, type Broadcast, type Domain } from '../db/schema'
 import type { AppEnv, Env } from '../env'
 import { cancelBroadcast, queueBroadcast, sendTestBroadcast, subscriberCount } from '../lib/broadcast'
 import { ensureSegments, importContacts, segmentNamesOf } from '../lib/contacts'
 import { emailConfigured, resolveSender, sendMail } from '../lib/mailer'
 import { htmlToText, isEmail, parseAddressList } from '../lib/text'
-import { apiKeyAuth } from './v1'
+import { getDb } from '../db'
+import { oauthGrant } from '../db/schema'
+import { verifyAccessToken, wwwAuthenticate } from '../lib/oauth'
+import { API_KEY, findApiKey } from './v1'
 
 const MAX_ADD = 1000
 
-type Ctx = { env: Env; db: AppEnv['Variables']['db']; domain: Domain; key: ApiKey; origin: string }
+// Who is calling: an API key, or an app signed in with OAuth.
+type Caller = AppEnv['Variables']['caller']
+type Ctx = { env: Env; db: AppEnv['Variables']['db']; domain: Domain; key: Caller; origin: string }
 
 const INSTRUCTIONS = `Mailroom: email for one domain (the API key's). Call get_domain first to see the domain, its mailboxes and what this key may do.
 
@@ -86,6 +94,9 @@ const draftFields = {
   name: z.string().trim().max(200).optional().describe('Name in the dashboard; the subject when left out'),
 }
 
+// Which OAuth scope a tool needs, as ChatGPT reads it from the tool list.
+const oauthScope = (scope?: ApiScope) => ({ securitySchemes: [{ type: 'oauth2', scopes: scope ? [scope] : [] }] })
+
 const register = (server: McpServer, x: Ctx) => {
   const may = (scope: ApiScope) => x.key.scopes.includes(scope)
 
@@ -93,6 +104,7 @@ const register = (server: McpServer, x: Ctx) => {
     'get_domain',
     {
       title: 'Domain',
+      _meta: oauthScope(),
       description: "The domain this key is for, its mailboxes (senders), its segments with how many subscribed contacts each has, and the key's scopes.",
       annotations: { readOnlyHint: true },
     },
@@ -112,7 +124,7 @@ const register = (server: McpServer, x: Ctx) => {
   if (may('contacts')) {
     server.registerTool(
       'list_segments',
-      { title: 'Segments', description: 'Segments (lists) of the domain, with how many subscribed contacts each has.', annotations: { readOnlyHint: true } },
+      { _meta: oauthScope('contacts'), title: 'Segments', description: 'Segments (lists) of the domain, with how many subscribed contacts each has.', annotations: { readOnlyHint: true } },
       async () => text(await segmentsOf(x)),
     )
 
@@ -120,6 +132,7 @@ const register = (server: McpServer, x: Ctx) => {
       'add_contacts',
       {
         title: 'Add contacts',
+        _meta: oauthScope('contacts'),
         description: `Add up to ${MAX_ADD} contacts at once and put them all in the given segments (missing segments are made). Only add people who agreed to receive email from this domain. Someone already on file gets the names given and the segments, but keeps their subscription: an unsubscribed contact stays unsubscribed. Invalid addresses are skipped and listed.`,
         inputSchema: {
           contacts: z
@@ -148,6 +161,7 @@ const register = (server: McpServer, x: Ctx) => {
       'list_contacts',
       {
         title: 'List contacts',
+        _meta: oauthScope('contacts'),
         description: 'Contacts of the domain, newest first, a page at a time: pass the returned `next` as `after` for the following page.',
         inputSchema: {
           segment: z.string().optional().describe('Only contacts in this segment'),
@@ -184,7 +198,7 @@ const register = (server: McpServer, x: Ctx) => {
 
     server.registerTool(
       'get_contact',
-      { title: 'Contact', description: 'One contact, with their segments.', inputSchema: { email: emailArg }, annotations: { readOnlyHint: true } },
+      { _meta: oauthScope('contacts'), title: 'Contact', description: 'One contact, with their segments.', inputSchema: { email: emailArg }, annotations: { readOnlyHint: true } },
       async ({ email }) => {
         const row = await x.db.query.contact.findFirst({ where: and(eq(contact.domainId, x.domain.id), eq(contact.email, email)) })
         if (!row) return fail('not_found', `${email} is not a contact of ${x.domain.name}`)
@@ -197,6 +211,7 @@ const register = (server: McpServer, x: Ctx) => {
       'unsubscribe_contact',
       {
         title: 'Unsubscribe contact',
+        _meta: oauthScope('contacts'),
         description: 'Mark a contact unsubscribed: broadcasts skip them from now on. They stay on file, so adding them again does not resubscribe them.',
         inputSchema: { email: emailArg },
         annotations: { destructiveHint: true, idempotentHint: true },
@@ -218,6 +233,7 @@ const register = (server: McpServer, x: Ctx) => {
       'send_email',
       {
         title: 'Send an email',
+        _meta: oauthScope('send'),
         description:
           'Send one email now, from an address on the domain. All recipients (50 at most) get the same email and see each other in To and Cc. For a mailing to a list of contacts use a broadcast instead (create_broadcast).',
         inputSchema: {
@@ -261,7 +277,7 @@ const register = (server: McpServer, x: Ctx) => {
   if (may('broadcasts')) {
     server.registerTool(
       'list_broadcasts',
-      { title: 'Broadcasts', description: 'The domain’s latest 50 broadcasts, newest first, with their status and progress.', annotations: { readOnlyHint: true } },
+      { _meta: oauthScope('broadcasts'), title: 'Broadcasts', description: 'The domain’s latest 50 broadcasts, newest first, with their status and progress.', annotations: { readOnlyHint: true } },
       async () => {
         const rows = await x.db
           .select({ b: broadcast, segment: segment.name })
@@ -278,6 +294,7 @@ const register = (server: McpServer, x: Ctx) => {
       'get_broadcast',
       {
         title: 'Broadcast',
+        _meta: oauthScope('broadcasts'),
         description:
           'One broadcast: its message as written, status (draft, queued, sending, sent, canceled), how many it went to so far, and the first failures. Recipients is how many subscribers its segment has now.',
         inputSchema: { id: broadcastId },
@@ -304,6 +321,7 @@ const register = (server: McpServer, x: Ctx) => {
       'create_broadcast',
       {
         title: 'Create a broadcast draft',
+        _meta: oauthScope('broadcasts'),
         description:
           'Write a broadcast to the subscribed contacts of a segment. It is saved as a draft and sends nothing; the answer says how many it would reach. Check it with send_test_broadcast, and send it with send_broadcast once the user has approved it.',
         inputSchema: { segment: z.string().trim().min(1).describe('Segment name (see list_segments)'), ...draftFields },
@@ -326,6 +344,7 @@ const register = (server: McpServer, x: Ctx) => {
       'update_broadcast',
       {
         title: 'Change a broadcast draft',
+        _meta: oauthScope('broadcasts'),
         description: 'Change fields of a draft; the others stay as they are. Only drafts can change (cancel_broadcast turns a queued one back into a draft).',
         inputSchema: {
           id: broadcastId,
@@ -360,6 +379,7 @@ const register = (server: McpServer, x: Ctx) => {
       'send_test_broadcast',
       {
         title: 'Send a test of a broadcast',
+        _meta: oauthScope('broadcasts'),
         description: 'Send one copy of a broadcast to a single address (default: its sender), with sample names in the placeholders and "[Test]" before the subject. Not counted as sent.',
         inputSchema: { id: broadcastId, to: z.string().trim().optional().describe('Where to send the test; the broadcast’s sender when left out') },
         annotations: { destructiveHint: false, openWorldHint: true },
@@ -376,6 +396,7 @@ const register = (server: McpServer, x: Ctx) => {
       'send_broadcast',
       {
         title: 'Send a broadcast',
+        _meta: oauthScope('broadcasts'),
         description:
           'Queue a draft to go out to every subscribed contact of its segment, now or at `scheduledAt`. This emails real people and cannot be undone once they have it: call it only after the user has approved this draft and its number of recipients. `expectedRecipients` must equal the current count (from create_broadcast or get_broadcast); if the segment changed, the call is refused with the new count. It goes out within a minute, a batch at a time; follow it with get_broadcast.',
         inputSchema: {
@@ -404,6 +425,7 @@ const register = (server: McpServer, x: Ctx) => {
       'cancel_broadcast',
       {
         title: 'Cancel a broadcast',
+        _meta: oauthScope('broadcasts'),
         description: 'A queued broadcast goes back to being a draft. One that is going out stops: whoever has not received it yet never will.',
         inputSchema: { id: broadcastId },
         annotations: { destructiveHint: true },
@@ -428,16 +450,56 @@ const segmentsOf = async (x: Ctx) =>
     .where(eq(segment.domainId, x.domain.id))
     .orderBy(asc(segment.name))
 
+// last_used_at of a grant is written at most this often.
+const TOUCH_MS = 60_000
+
+// An API key (mr_…) or an OAuth access token (mro_…). Without either, the
+// 401 says where to sign in (RFC 9728), which is how an OAuth client starts.
+const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const origin = new URL(c.req.url).origin
+  const header = c.req.header('Authorization') || ''
+  const token = header.match(/^Bearer\s+(\S+)$/i)?.[1]
+  const db = getDb(c.env.DB)
+  let caller: Caller | null = null
+  if (token && API_KEY.test(`Bearer ${token}`)) {
+    const row = await findApiKey(c, db, token)
+    if (row) {
+      c.set('domain', row.domain)
+      caller = { name: row.key.name, scopes: row.key.scopes }
+    }
+  } else if (token) {
+    const row = await verifyAccessToken(db, token)
+    const own = row && (await db.query.domain.findFirst({ where: (d, { eq }) => eq(d.id, row.grant.domainId) }))
+    if (row && own) {
+      c.set('domain', own)
+      caller = { name: row.clientName || 'oauth', scopes: row.grant.scopes }
+      if (!row.grant.lastUsedAt || Date.now() - Date.parse(row.grant.lastUsedAt) > TOUCH_MS) {
+        c.executionCtx.waitUntil(db.update(oauthGrant).set({ lastUsedAt: new Date().toISOString() }).where(eq(oauthGrant.id, row.grant.id)).then(() => {}))
+      }
+    }
+  }
+  if (!caller) {
+    return c.json(
+      { error: 'unauthorized', message: token ? 'Unknown, expired or revoked token' : 'Sign in with OAuth, or send an API key as Authorization: Bearer mr_…' },
+      401,
+      { 'WWW-Authenticate': wwwAuthenticate(origin, token ? 'invalid_token' : undefined) },
+    )
+  }
+  c.set('db', db)
+  c.set('caller', caller)
+  return next()
+})
+
 // Without sessions there is no stream to open (GET) or end (DELETE).
 const notAllowed = () => new Response(null, { status: 405, headers: { Allow: 'POST' } })
 
 export const mcpRoutes = new Hono<AppEnv>()
   .get('/', notAllowed)
   .delete('/', notAllowed)
-  .use(apiKeyAuth)
+  .use(mcpAuth)
   .post('/', async (c) => {
     const server = new McpServer({ name: 'mailroom', version: '0.1.0' }, { instructions: INSTRUCTIONS, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
-    register(server, { env: c.env, db: c.var.db, domain: c.var.domain!, key: c.var.apiKey, origin: new URL(c.req.url).origin })
+    register(server, { env: c.env, db: c.var.db, domain: c.var.domain!, key: c.var.caller, origin: new URL(c.req.url).origin })
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     await server.connect(transport)
     return transport.handleRequest(c.req.raw)

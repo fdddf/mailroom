@@ -5,11 +5,12 @@ import { Hono } from 'hono'
 import type { AppEnv } from './env'
 import { adminRoutes } from './routes/admin'
 import { mcpRoutes } from './routes/mcp'
+import { oauthRoutes } from './routes/oauth'
 import { publicRoutes } from './routes/public'
 import { subscribeRoutes } from './routes/subscribe'
 import { v1Routes } from './routes/v1'
 
-const app = new Hono<AppEnv>().route('/', publicRoutes).route('/', subscribeRoutes).route('/api/admin', adminRoutes).route('/v1', v1Routes).route('/mcp', mcpRoutes)
+const app = new Hono<AppEnv>().route('/', publicRoutes).route('/', subscribeRoutes).route('/api/admin', adminRoutes).route('/v1', v1Routes).route('/mcp', mcpRoutes).route('/', oauthRoutes)
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404))
 app.onError((err, c) => {

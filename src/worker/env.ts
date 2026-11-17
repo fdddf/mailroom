@@ -1,6 +1,6 @@
 import type { D1Database, R2Bucket, SendEmail } from '@cloudflare/workers-types'
 import type { Db } from './db'
-import type { ApiKey, Domain } from './db/schema'
+import type { ApiKey, ApiScope, Domain } from './db/schema'
 
 // Bindings and variables (wrangler.jsonc says what each does).
 export type Env = {
@@ -26,5 +26,7 @@ export type AppEnv = {
     domain: Domain | null
     // /v1 only.
     apiKey: ApiKey
+    // /mcp only: an API key's name and scopes, or an OAuth app's.
+    caller: { name: string; scopes: ApiScope[] }
   }
 }

@@ -5,8 +5,8 @@
 //                parsed and filed in the mail table, where the dashboard
 //                shows it, and announced to the domain's webhooks.
 //   scheduled()  Every minute: sends the next batch of any broadcast that is
-//                due (lib/broadcast.ts), and clears expired sign-ups and
-//                abandoned file uploads.
+//                due (lib/broadcast.ts), and clears expired sign-ups,
+//                abandoned file uploads and spent OAuth tokens.
 //   queue()      Email Sending delivery events (delivered, bounced, …) update
 //                the status shown in Sent, go to the domain's webhooks, and
 //                unsubscribe contacts that hard-bounce or complain.
@@ -21,6 +21,7 @@ import type { Env } from './env'
 import { sendBark } from './lib/bark'
 import { processBroadcasts, suppressContact } from './lib/broadcast'
 import { purgeStaleUploads } from './lib/files'
+import { purgeOauth } from './lib/oauth'
 import { purgeExpiredSubscriptions } from './lib/subscribe'
 import { deliver, recordDeliveryStatus, storeInbound } from './lib/mailer'
 import { findBlockRule } from './lib/spam'
@@ -158,6 +159,7 @@ export default {
     const db = getDb(env.DB)
     await purgeExpiredSubscriptions(db)
     await purgeStaleUploads(db, env)
+    await purgeOauth(db)
     await processBroadcasts(db, (m) => deliver(env, m), publicUrl(env))
   },
 
