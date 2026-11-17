@@ -399,8 +399,9 @@ export const aiProvider = sqliteTable('ai_provider', {
 export const API_SCOPES = ['send', 'contacts', 'broadcasts'] as const
 export type ApiScope = (typeof API_SCOPES)[number]
 
-// A key for /v1, good for one domain. Only its hash is kept; the key itself
-// is shown once, when it is made.
+// A key for /v1, good for one domain. It is looked up by its hash; a copy
+// encrypted with a key derived from ADMIN_PASSWORD (lib/crypto) lets the
+// dashboard show it again.
 export const apiKey = sqliteTable(
   'api_key',
   {
@@ -413,6 +414,9 @@ export const apiKey = sqliteTable(
     prefix: text('prefix').notNull(),
     // SHA-256 of the whole key, hex.
     hash: text('hash').notNull().unique(),
+    // The key, encrypted (encryptSecret). Empty for keys made before keys were
+    // kept, or unreadable after ADMIN_PASSWORD changed: those cannot be shown.
+    secret: text('secret').notNull().default(''),
     scopes: text('scopes', { mode: 'json' }).$type<ApiScope[]>().notNull(),
     lastUsedAt: text('last_used_at'),
     createdAt: text('created_at').notNull().default(now),

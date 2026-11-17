@@ -6,7 +6,7 @@ Base URL: your `PUBLIC_URL`, e.g. `https://mailroom.example.com/v1`.
 
 ## Authentication
 
-Make a key on the domain's page in the dashboard (**Domains** → the domain → API keys). It is shown once; Mailroom keeps only a hash.
+Make a key on the domain's page in the dashboard (**Domains** → the domain → API keys). **Show** next to a key displays it again later: Mailroom keeps it encrypted with a key derived from `ADMIN_PASSWORD` (and looks it up by its hash). Keys made before Mailroom kept them, or kept under an earlier `ADMIN_PASSWORD`, cannot be shown again; make a new one.
 
 ```
 Authorization: Bearer mr_…

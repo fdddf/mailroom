@@ -8,7 +8,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { API_SCOPES, WEBHOOK_EVENTS, apiKey, domain, file, mailbox, oauthClient, oauthGrant, webhook, type ApiKey, type Webhook } from '../../db/schema'
 import type { AppEnv } from '../../env'
-import { newApiKey, randomToken } from '../../lib/crypto'
+import { decryptSecret, encryptSecret, newApiKey, randomToken } from '../../lib/crypto'
 import { checkDomain } from '../../lib/dns'
 import { fileKey } from '../../lib/files'
 import { sendMail } from '../../lib/mailer'
@@ -39,8 +39,10 @@ const hookUrl = z
 const keyParam = idParam.extend({ keyId: z.coerce.number().int().positive() })
 const hookParam = idParam.extend({ hookId: z.coerce.number().int().positive() })
 
-// The key itself is never kept; the secret is shown, since the receiver needs it.
-const keyView = ({ hash, ...k }: ApiKey) => k
+// A key's hash and encrypted copy stay here; the key itself is only sent by
+// the create and reveal routes. The webhook secret is shown, since the
+// receiver needs it.
+const keyView = ({ hash, secret, ...k }: ApiKey) => ({ ...k, viewable: secret !== '' })
 const hookView = (h: Webhook) => h
 
 export const domainRoutes = new Hono<AppEnv>()
@@ -161,7 +163,7 @@ export const domainRoutes = new Hono<AppEnv>()
     return c.json({ items: rows.map(keyView) })
   })
 
-  // The key is in this answer and nowhere else, ever.
+  // The key is in this answer, and in the reveal route's.
   .post(
     '/:id/keys',
     validate('param', idParam),
@@ -172,10 +174,24 @@ export const domainRoutes = new Hono<AppEnv>()
       if (!(await db.query.domain.findFirst({ columns: { id: true }, where: eq(domain.id, id) }))) return c.json({ error: 'not_found' }, 404)
       const { key, prefix, hash } = await newApiKey()
       const { name, scopes } = c.req.valid('json')
-      const [row] = await db.insert(apiKey).values({ domainId: id, name, scopes: [...new Set(scopes)], prefix, hash }).returning()
+      const secret = await encryptSecret(c.env.ADMIN_PASSWORD!, key)
+      const [row] = await db.insert(apiKey).values({ domainId: id, name, scopes: [...new Set(scopes)], prefix, hash, secret }).returning()
       return c.json({ ...keyView(row!), key })
     },
   )
+
+  // The key again, for the dashboard (the admin session is the proof). Keys
+  // made before copies were kept, or kept under an earlier ADMIN_PASSWORD,
+  // cannot be read: make a new one.
+  .get('/:id/keys/:keyId/reveal', validate('param', keyParam), async (c) => {
+    const { id, keyId } = c.req.valid('param')
+    const row = await c.var.db.query.apiKey.findFirst({ where: and(eq(apiKey.id, keyId), eq(apiKey.domainId, id)) })
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    const key = row.secret ? await decryptSecret(c.env.ADMIN_PASSWORD!, row.secret) : null
+    if (!key) return c.json({ error: 'not_stored', message: 'This key was not kept, so it cannot be shown. Make a new one and revoke this one.' }, 409)
+    c.header('Cache-Control', 'no-store')
+    return c.json({ key })
+  })
 
   .delete('/:id/keys/:keyId', validate('param', keyParam), async (c) => {
     const { id, keyId } = c.req.valid('param')

@@ -61,7 +61,7 @@ npx wrangler secret put ADMIN_PASSWORD
 
 ## 其它系统怎么对接
 
-在域名页面创建 API key（只显示一次），然后：
+在域名页面创建 API key（之后可在列表里点 **Show** 再次查看），然后：
 
 ```bash
 curl https://mailroom.example.com/v1/send \

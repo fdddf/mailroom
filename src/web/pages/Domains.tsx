@@ -16,6 +16,7 @@ import {
   TextInput,
   Textarea,
   Title,
+  Tooltip,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { IconCircleCheck, IconCircleDashed, IconCircleX, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
@@ -298,13 +299,15 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
   const revoke = useAction((keyId: number) => call(api.domains[':id'].keys[':keyId'].$delete({ param: { id, keyId: String(keyId) } })), { ...invalidate, success: 'Key revoked' })
   const base = session?.publicUrl ?? 'https://mailroom.example.com'
 
-  const showKey = (key: string) =>
+  const reveal = useAction((keyId: number) => call(api.domains[':id'].keys[':keyId'].reveal.$get({ param: { id, keyId: String(keyId) } })))
+
+  const showKey = (key: string, title = 'Your new API key') =>
     modals.open({
-      title: 'Your new API key',
+      title,
       size: 'lg',
       children: (
         <Stack>
-          <Alert color="yellow">Copy it now: it is not stored and cannot be shown again. Keep it on your servers only, never in an app or a web page.</Alert>
+          <Alert color="yellow">Keep it on your servers only, never in an app or a web page. Anyone with it can use this domain as far as its permissions go; if it leaks, revoke it.</Alert>
           <Copyable value={key} />
           <Text size="sm">Try it:</Text>
           <Copyable value={`curl ${base}/v1/domain -H "Authorization: Bearer ${key}"`} />
@@ -346,7 +349,26 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
                       {k.lastUsedAt ? `Last used ${fmt(k.lastUsedAt)}` : 'Never used'}
                     </Text>
                   </Table.Td>
-                  <Table.Td ta="right">
+                  <Table.Td ta="right" style={{ whiteSpace: 'nowrap' }}>
+                    {k.viewable ? (
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        loading={reveal.isPending && reveal.variables === k.id}
+                        onClick={async () => {
+                          const r = await reveal.mutateAsync(k.id).catch(() => null)
+                          if (r) showKey(r.key, `API key “${k.name}”`)
+                        }}
+                      >
+                        Show
+                      </Button>
+                    ) : (
+                      <Tooltip label="Made before keys were kept, so it cannot be shown again. Make a new key if you need it." multiline w={240}>
+                        <Text span size="xs" c="dimmed" mr="xs">
+                          Not viewable
+                        </Text>
+                      </Tooltip>
+                    )}
                     <Button
                       size="compact-sm"
                       variant="subtle"
