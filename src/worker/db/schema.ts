@@ -292,6 +292,8 @@ export const broadcast = sqliteTable(
     publicUrl: text('public_url').notNull().default(''),
     sentAt: text('sent_at'),
     createdAt: text('created_at').notNull().default(now),
+    // Who wrote it: 'dashboard', or 'mcp:<app or key name>'.
+    source: text('source').notNull().default('dashboard'),
     // Filled in as it goes out.
     total: integer('total').notNull().default(0),
     sent: integer('sent').notNull().default(0),
@@ -316,8 +318,19 @@ export const broadcastRecipient = sqliteTable(
     status: text('status', { enum: ['pending', 'claimed', 'sent', 'failed'] }).notNull().default('pending'),
     claimedAt: text('claimed_at'),
     error: text('error').notNull().default(''),
+    // Email Sending's id for the email, which its delivery events carry.
+    messageId: text('message_id').notNull().default(''),
+    // What became of it after it was sent, from those events: delivered,
+    // delivery_delayed, bounced, complained, failed or suppressed; empty
+    // until one arrives (or when the domain's events are not subscribed).
+    delivery: text('delivery').notNull().default(''),
+    deliveryAt: text('delivery_at'),
   },
-  (t) => [uniqueIndex('broadcast_recipient_unique').on(t.broadcastId, t.contactId), index('broadcast_recipient_status').on(t.broadcastId, t.status)],
+  (t) => [
+    uniqueIndex('broadcast_recipient_unique').on(t.broadcastId, t.contactId),
+    index('broadcast_recipient_status').on(t.broadcastId, t.status),
+    index('broadcast_recipient_message').on(t.messageId),
+  ],
 )
 
 // ---- Templates and AI -------------------------------------------------------

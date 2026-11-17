@@ -18,7 +18,7 @@ import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { BODY_FORMATS, broadcast, broadcastRecipient, contact, mailbox, segment, type ApiScope, type Broadcast, type Domain } from '../db/schema'
 import type { AppEnv, Env } from '../env'
-import { cancelBroadcast, queueBroadcast, sendTestBroadcast, subscriberCount } from '../lib/broadcast'
+import { RECIPIENT_STATES, cancelBroadcast, deliveryCounts, listRecipients, queueBroadcast, sendTestBroadcast, subscriberCount } from '../lib/broadcast'
 import { ensureSegments, importContacts, segmentNamesOf } from '../lib/contacts'
 import { emailConfigured, resolveSender, sendMail } from '../lib/mailer'
 import { htmlToText, isEmail, parseAddressList } from '../lib/text'
@@ -57,6 +57,7 @@ const broadcastView = (b: Broadcast, segmentName: string | null) => ({
   subject: b.subject,
   previewText: b.previewText,
   format: b.format,
+  source: b.source,
   createdAt: b.createdAt,
   scheduledAt: b.scheduledAt,
   sentAt: b.sentAt,
@@ -86,7 +87,7 @@ const draftFields = {
     .min(1)
     .max(200_000)
     .describe(
-      'The email. Placeholders: {{first_name}}, {{last_name}}, {{email}}, {{unsubscribe_url}}. An unsubscribe footer is added unless the message has {{unsubscribe_url}} itself.',
+      'The email. Placeholders: {{first_name}}, {{last_name}}, {{email}}. Do not end it with an unsubscribe line: a footer saying why they get it, with an Unsubscribe link, is added to every email. Only to word that yourself, use {{unsubscribe_url}} in a sentence or link, e.g. <a href="{{unsubscribe_url}}">Unsubscribe</a>; a bare {{unsubscribe_url}} on its own line is dropped.',
     ),
   format: z.enum(BODY_FORMATS).default('text').describe('"text" (HTML is made from it) or "html" (the text part is made from it)'),
   previewText: z.string().trim().max(200).default('').describe('Optional line that inboxes show after the subject'),
@@ -315,7 +316,7 @@ const register = (server: McpServer, x: Ctx) => {
         title: 'Broadcast',
         _meta: oauthScope('broadcasts'),
         description:
-          'One broadcast: its message as written, status (draft, queued, sending, sent, canceled), how many it went to so far, and the first failures. Recipients is how many subscribers its segment has now.',
+          'One broadcast: its message as written, status (draft, queued, sending, sent, canceled), how many it went to so far, and the first failures. `delivery` counts recipients by what became of their email (pending, sent, delivered, delivery_delayed, bounced, complained, failed, suppressed); "sent" means no delivery event yet, which is all there is when the domain\'s delivery events are not subscribed. `recipients` is how many subscribers its segment has now. Use list_broadcast_recipients for who.',
         inputSchema: { id: broadcastId },
         annotations: { readOnlyHint: true },
       },
@@ -331,8 +332,30 @@ const register = (server: McpServer, x: Ctx) => {
           ...broadcastView(row, await segmentName(x, row.segmentId)),
           message: row.message,
           recipients: row.segmentId ? await subscriberCount(x.db, row.segmentId) : 0,
+          delivery: await deliveryCounts(x.db, id),
           failures,
         })
+      },
+    )
+
+    server.registerTool(
+      'list_broadcast_recipients',
+      {
+        title: 'Broadcast recipients',
+        _meta: oauthScope('broadcasts'),
+        description:
+          'Who a broadcast went to and what became of each email, oldest first, a page at a time (pass the returned `next` as `after`). Filter by `state`, e.g. "bounced" to see who it did not reach. Empty until sending starts.',
+        inputSchema: {
+          id: broadcastId,
+          state: z.enum(RECIPIENT_STATES).optional().describe('Only recipients in this state'),
+          after: z.number().int().positive().optional(),
+          limit: z.number().int().min(1).max(500).default(100),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async ({ id, state, after, limit }) => {
+        if (!(await findBroadcast(x, id))) return fail('not_found', `No broadcast ${id} on ${x.domain.name}`)
+        return text(await listRecipients(x.db, id, { state, after, limit }))
       },
     )
 
@@ -353,7 +376,7 @@ const register = (server: McpServer, x: Ctx) => {
         if (!sender) return fail(from ? 'unknown_sender' : 'no_mailbox', from ? `${from} is not a mailbox of ${x.domain.name}` : `${x.domain.name} has no mailbox to send from`)
         const [row] = await x.db
           .insert(broadcast)
-          .values({ ...b, name: b.name || b.subject, domainId: x.domain.id, segmentId: seg.id, fromAddr: sender.email })
+          .values({ ...b, name: b.name || b.subject, domainId: x.domain.id, segmentId: seg.id, fromAddr: sender.email, source: `mcp:${x.key.name}` })
           .returning()
         return text({ ...broadcastView(row!, seg.name), recipients: await subscriberCount(x.db, seg.id) })
       },
@@ -406,7 +429,7 @@ const register = (server: McpServer, x: Ctx) => {
       async ({ id, to }) => {
         const row = await findBroadcast(x, id)
         if (!row) return fail('not_found', `No broadcast ${id} on ${x.domain.name}`)
-        const sent = await sendTestBroadcast(x.env, x.db, row, { from: row.fromAddr || undefined, domainId: x.domain.id, to, source: `mcp:${x.key.name}` })
+        const sent = await sendTestBroadcast(x.env, x.db, row, { from: row.fromAddr || undefined, domainId: x.domain.id, to, source: `mcp:${x.key.name}`, publicUrl: x.env.PUBLIC_URL || x.origin })
         return sent.ok ? text({ ok: true, to: sent.to }) : fail(sent.error, 'message' in sent ? sent.message : undefined)
       },
     )

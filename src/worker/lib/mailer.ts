@@ -252,7 +252,7 @@ export const storeInbound = async (db: Db, email: Inbound): Promise<StoreResult>
 }
 
 // Delivery events never overwrite a worse or more final one.
-const RANK: Record<string, number> = { sent: 1, delivery_delayed: 2, delivered: 3, opened: 4, clicked: 5, failed: 6, suppressed: 6, bounced: 7, complained: 8 }
+export const DELIVERY_RANK: Record<string, number> = { sent: 1, delivery_delayed: 2, delivered: 3, opened: 4, clicked: 5, failed: 6, suppressed: 6, bounced: 7, complained: 8 }
 
 // Record a delivery event against the email it is about: by Email Sending's
 // message id, else (ids do not always survive the trip) by sender, recipient
@@ -279,6 +279,6 @@ export const recordDeliveryStatus = async (
     })
   }
   if (!row) return null
-  if ((RANK[status] ?? 0) >= (RANK[row.status] ?? 0)) await db.update(mail).set({ status }).where(eq(mail.id, row.id))
+  if ((DELIVERY_RANK[status] ?? 0) >= (DELIVERY_RANK[row.status] ?? 0)) await db.update(mail).set({ status }).where(eq(mail.id, row.id))
   return row
 }

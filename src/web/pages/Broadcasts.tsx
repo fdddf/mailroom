@@ -1,6 +1,6 @@
-import { Badge, Button, Group, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
+import { Badge, Button, Group, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Table, Text, TextInput, Title } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, call, errorText } from '../api'
@@ -16,6 +16,22 @@ const STATUS = {
   sent: { label: 'Sent', color: 'teal' },
   canceled: { label: 'Stopped', color: 'red' },
 } as const
+
+// What became of each recipient's email (lib/broadcast.ts RECIPIENT_STATES).
+const STATES = {
+  delivered: { label: 'Delivered', color: 'teal' },
+  sent: { label: 'Sent, not yet reported', color: 'gray' },
+  delivery_delayed: { label: 'Delayed', color: 'yellow' },
+  bounced: { label: 'Bounced', color: 'red' },
+  complained: { label: 'Marked as spam', color: 'red' },
+  failed: { label: 'Failed', color: 'red' },
+  suppressed: { label: 'Suppressed', color: 'orange' },
+  pending: { label: 'Not sent yet', color: 'blue' },
+} as const
+type State = keyof typeof STATES
+
+// Who made it: the dashboard, or an app or key through MCP ('mcp:<name>').
+const sourceLabel = (source: string) => (source.startsWith('mcp:') ? `MCP · ${source.slice(4)}` : source === 'dashboard' ? '' : source)
 
 // Refresh while something is on its way out.
 const LIVE = new Set(['queued', 'sending'])
@@ -59,6 +75,7 @@ export function BroadcastsPage() {
                 </Badge>
                 {segmentName(b.segment_id)}
                 {b.total > 0 && ` · ${b.sent}/${b.total}`}
+                {sourceLabel(b.source) && ` · ${sourceLabel(b.source)}`}
               </Group>
             }
           />
@@ -296,24 +313,14 @@ function Viewer({ id, b, segment }: { id: string; b: BroadcastDetailData; segmen
           ['Segment', segment],
           ['Subject', b.subject ?? ''],
           ['Preview text', b.preview_text ?? ''],
+          ['Made by', sourceLabel(b.source) || 'Dashboard'],
           ['Created', fmtFull(b.created_at)],
           ['Scheduled for', b.scheduled_at ? fmtFull(b.scheduled_at) : ''],
           [b.status === 'canceled' ? 'Stopped' : 'Finished', b.sent_at ? fmtFull(b.sent_at) : ''],
         ]}
       />
+      {b.total > 0 && <Recipients id={id} counts={b.delivery} live={LIVE.has(b.status)} />}
       <HtmlFrame html={b.html} remoteImages />
-      {b.failures.length > 0 && (
-        <Stack gap={4}>
-          <Text fw={600} size="sm">
-            Failed
-          </Text>
-          {b.failures.map((f) => (
-            <Text key={f.email} size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-              {f.email} — {f.error}
-            </Text>
-          ))}
-        </Stack>
-      )}
       <Group>
         {b.status === 'queued' && (
           <Button
@@ -352,6 +359,69 @@ function Viewer({ id, b, segment }: { id: string; b: BroadcastDetailData; segmen
           </Button>
         )}
       </Group>
+    </Stack>
+  )
+}
+
+// What became of each email: counts by state, and the recipients in one of
+// them. Delivery events arrive over minutes to days after sending.
+function Recipients({ id, counts, live }: { id: string; counts: Record<State, number>; live: boolean }) {
+  const [state, setState] = useState<State | ''>('')
+  const list = useInfiniteQuery({
+    queryKey: ['broadcast-recipients', id, state],
+    queryFn: ({ pageParam }) =>
+      call(api.broadcasts[':id'].recipients.$get({ param: { id }, query: { ...(state && { state }), ...(pageParam && { after: String(pageParam) }) } })),
+    initialPageParam: 0,
+    getNextPageParam: (last) => last.next ?? undefined,
+    refetchInterval: live ? 15_000 : false,
+  })
+  const rows = list.data?.pages.flatMap((p) => p.recipients) ?? []
+  const shown = (Object.keys(STATES) as State[]).filter((s) => counts[s] > 0)
+  return (
+    <Stack gap="xs">
+      <Group gap={6}>
+        {shown.map((s) => (
+          <Badge
+            key={s}
+            variant={state === s ? 'filled' : 'light'}
+            color={STATES[s].color}
+            style={{ cursor: 'pointer', textTransform: 'none' }}
+            onClick={() => setState(state === s ? '' : s)}
+          >
+            {STATES[s].label}: {counts[s]}
+          </Badge>
+        ))}
+      </Group>
+      {counts.sent > 0 && counts.delivered + counts.delivery_delayed + counts.bounced + counts.complained + counts.suppressed === 0 && (
+        <Text size="xs" c="dimmed">
+          No delivery reports yet; they usually follow within minutes. If none ever come, subscribe the domain’s sending events to the mailroom-events queue (docs/domains.md, step 3).
+        </Text>
+      )}
+      <Paper withBorder style={{ overflow: 'auto', maxHeight: 360 }}>
+        <Table verticalSpacing={4} fz="sm" stickyHeader>
+          <Table.Tbody>
+            {rows.map((r) => (
+              <Table.Tr key={r.id}>
+                <Table.Td style={{ overflowWrap: 'anywhere' }}>{r.email}</Table.Td>
+                <Table.Td>
+                  <Badge size="xs" variant="light" color={STATES[r.state].color} style={{ textTransform: 'none' }}>
+                    {STATES[r.state].label}
+                  </Badge>
+                </Table.Td>
+                <Table.Td c="dimmed" fz="xs" style={{ overflowWrap: 'anywhere' }}>
+                  {r.error || (r.deliveryAt ? fmtFull(r.deliveryAt) : '')}
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+        {list.isPending && <Skeleton h={60} m="xs" />}
+      </Paper>
+      {list.hasNextPage && (
+        <Button variant="subtle" size="compact-sm" w="fit-content" loading={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
+          Show more
+        </Button>
+      )}
     </Stack>
   )
 }

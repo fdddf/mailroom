@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { getDb } from '../db'
 import { contact, domain, file } from '../db/schema'
 import type { AppEnv } from '../env'
+import { SAMPLE_TOKEN } from '../lib/broadcast'
 import { countDownload, fileKey, parseRange } from '../lib/files'
 import { IMAGE_TYPES, MEDIA_PREFIX } from './admin/media'
 
@@ -24,6 +25,10 @@ button{font:inherit;font-weight:600;color:#fff;background:#2563eb;border:0;borde
 @media (prefers-color-scheme:dark){body{color:#f4f3ee;background:#1f1e1b}p{color:#b5b3a8}}</style>
 </head><body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`
 
+// The link in previews and test emails.
+const samplePage = () =>
+  page('This is a sample link', '', '<p>In a test or preview of a broadcast, the unsubscribe link comes here. In the real emails it unsubscribes the person it was sent to.</p>')
+
 // Whose list a token is on, for the page's wording.
 const brandOf = async (db: ReturnType<typeof getDb>, token: string) => {
   const [row] = await db
@@ -41,6 +46,7 @@ export const publicRoutes = new Hono<AppEnv>()
   // email therefore unsubscribe nobody.
   .get('/u/:token', async (c) => {
     const token = c.req.param('token')
+    if (token === SAMPLE_TOKEN) return c.html(samplePage())
     if (!TOKEN.test(token)) return c.html(page('This link is not valid', '', '<p>It may have been cut off. Try the link in a more recent email.</p>'), 400)
     const brand = await brandOf(getDb(c.env.DB), token)
     return c.html(
@@ -53,6 +59,7 @@ export const publicRoutes = new Hono<AppEnv>()
   })
   .post('/u/:token', async (c) => {
     const token = c.req.param('token')
+    if (token === SAMPLE_TOKEN) return c.html(samplePage())
     const db = getDb(c.env.DB)
     let brand = ''
     if (TOKEN.test(token)) {

@@ -8,7 +8,7 @@ import { z } from 'zod'
 import type { Db } from '../../db'
 import { BODY_FORMATS, broadcast, broadcastRecipient, contact, contactSegment, segment, type Broadcast, type Contact } from '../../db/schema'
 import type { AppEnv } from '../../env'
-import { cancelBroadcast, placeBroadcast, previewHtml, queueBroadcast, sendTestBroadcast } from '../../lib/broadcast'
+import { RECIPIENT_STATES, cancelBroadcast, deliveryCounts, listRecipients, placeBroadcast, previewHtml, queueBroadcast, sendTestBroadcast } from '../../lib/broadcast'
 import { importContacts, upsertContact } from '../../lib/contacts'
 import { emailConfigured } from '../../lib/mailer'
 import { isEmail } from '../../lib/text'
@@ -16,6 +16,9 @@ import { emptyBody, validate } from '../../lib/validate'
 import { domainRequired, idParam, inDomain } from './shared'
 
 const PAGE = 100
+
+// Where links in email point: PUBLIC_URL, else the address the dashboard is on.
+const publicUrlOf = (c: { env: AppEnv['Bindings']; req: { url: string } }) => (c.env.PUBLIC_URL || new URL(c.req.url).origin).replace(/\/$/, '')
 const MAX_IMPORT = 5000
 
 const id = z.coerce.number({ error: 'invalid_id' }).int('invalid_id').positive('invalid_id')
@@ -183,6 +186,7 @@ const broadcastView = (b: Broadcast) => ({
   preview_text: b.previewText,
   message: b.message,
   format: b.format,
+  source: b.source,
   total: b.total,
   sent: b.sent,
   failed: b.failed,
@@ -215,7 +219,7 @@ export const broadcastRoutes = new Hono<AppEnv>()
       const { to, from, segmentId, ...draft } = c.req.valid('json')
       const db = c.var.db
       const domainId = segmentId ? (await db.query.segment.findFirst({ columns: { domainId: true }, where: eq(segment.id, segmentId) }))?.domainId : c.var.domain?.id
-      const sent = await sendTestBroadcast(c.env, db, draft, { from, domainId, to, source: 'dashboard' })
+      const sent = await sendTestBroadcast(c.env, db, draft, { from, domainId, to, source: 'dashboard', publicUrl: publicUrlOf(c) })
       return sent.ok ? c.json({ ok: true }) : c.json({ error: sent.error, message: 'message' in sent ? sent.message : undefined }, sent.status)
     },
   )
@@ -231,7 +235,12 @@ export const broadcastRoutes = new Hono<AppEnv>()
       .from(broadcastRecipient)
       .where(and(eq(broadcastRecipient.broadcastId, bid), eq(broadcastRecipient.status, 'failed')))
       .limit(50)
-    return c.json({ ...broadcastView(row), html: await previewHtml(db, row), failures })
+    return c.json({ ...broadcastView(row), html: await previewHtml(db, row, publicUrlOf(c)), failures, delivery: await deliveryCounts(db, bid) })
+  })
+  // Who it went to and what became of each, 100 at a time.
+  .get('/:id/recipients', validate('param', idParam), validate('query', z.object({ state: z.enum(RECIPIENT_STATES, 'invalid_state').optional(), after: id.optional() })), async (c) => {
+    const { state, after } = c.req.valid('query')
+    return c.json(await listRecipients(c.var.db, c.req.valid('param').id, { state, after }))
   })
   // Drafts only.
   .patch('/:id', validate('param', idParam), validate('json', broadcastInput), async (c) => {

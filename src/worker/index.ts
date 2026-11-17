@@ -19,7 +19,7 @@ import { getDb } from './db'
 import { blockRule, domain, mailbox, type Attachment } from './db/schema'
 import type { Env } from './env'
 import { sendBark } from './lib/bark'
-import { processBroadcasts, suppressContact } from './lib/broadcast'
+import { processBroadcasts, recordBroadcastDelivery, suppressContact } from './lib/broadcast'
 import { purgeStaleUploads } from './lib/files'
 import { purgeOauth } from './lib/oauth'
 import { purgeExpiredSubscriptions } from './lib/subscribe'
@@ -181,9 +181,8 @@ export default {
             recipient: recipient ?? null,
             bounce: bounce ?? null,
           }).catch((err) => console.error('mail.status webhook failed', err))
-        } else {
-          // Broadcast emails are not in the mail table, so most misses are those;
-          // the log line is for telling when something else is going unmatched.
+        } else if (!(await recordBroadcastDelivery(db, messageId, status, { sender, recipient }))) {
+          // Broadcast emails are kept per recipient, not in the mail table.
           console.log('delivery event without a matching email', JSON.stringify(message.body.payload))
         }
       }

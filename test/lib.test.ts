@@ -121,6 +121,23 @@ describe('broadcasts', () => {
     expect(own.html).toBe(`<p><a href="${url}">Leave</a></p>`)
     expect(own.text).not.toContain('Footer')
   })
+
+  it('drops a bare unsubscribe placeholder and adds the footer instead', () => {
+    const url = unsubscribeUrl('https://mail.example.com', 'abc123')
+    // What an assistant wrote: the placeholder alone on the last line.
+    const bare = broadcastBodies({ message: 'Hi there,\n\nNews.\n\nThe team\n\n{{unsubscribe_url}}', format: 'text', subject: 'Hi' }, 'Why you get this.', url)
+    expect(bare.text).toBe(`Hi there,\n\nNews.\n\nThe team\n\n—\nWhy you get this.\nUnsubscribe: ${url}`)
+    expect(bare.html).toContain('Why you get this.')
+    expect(bare.html.match(new RegExp(url, 'g'))).toHaveLength(1)
+
+    const bareHtml = broadcastBodies({ message: '<p>News</p><p> {{ unsubscribe_url }} </p>', format: 'html', subject: 'Hi' }, 'Why you get this.', url)
+    expect(bareHtml.html).toContain('Why you get this.')
+    expect(bareHtml.html).not.toContain('<p> ')
+
+    // Worded by the author: left as it is, without a second link.
+    const worded = broadcastBodies({ message: 'News.\nUnsubscribe here: {{unsubscribe_url}}', format: 'text', subject: 'Hi' }, 'Why you get this.', url)
+    expect(worded.text).toBe(`News.\nUnsubscribe here: ${url}`)
+  })
 })
 
 describe('keys and signatures', () => {

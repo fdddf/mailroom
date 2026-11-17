@@ -3,17 +3,29 @@
 // them a batch at a time (processBroadcasts), so a large list, the daily
 // sending quota or a crash never loses or repeats an email.
 
-import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from '../db'
 import { broadcast, broadcastRecipient, contact, domain, segment, type BodyFormat, type Domain } from '../db/schema'
 import type { Env } from '../env'
-import { resolveSender, sendMail, type SendRequest, type SendResponse } from './mailer'
-import { isEmail } from './text'
+import { DELIVERY_RANK, resolveSender, sendMail, type SendRequest, type SendResponse } from './mailer'
+import { bareAddress, isEmail } from './text'
 import { fillVariables, htmlToText, textToHtml } from './text'
 
 export const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
-const OWN_UNSUBSCRIBE = /\{\{\s*unsubscribe_url\s*\}\}/i
+const UNSUBSCRIBE_URL = /\{\{\s*unsubscribe_url\s*\}\}/i
+// The placeholder with nothing around it, on a line of its own (or alone in
+// an HTML paragraph): a bare address tells a reader nothing, so it is taken
+// out and the footer, which says what the link is, goes in instead.
+const BARE_UNSUBSCRIBE = [/^[ \t]*\{\{\s*unsubscribe_url\s*\}\}[ \t]*(?:\r?\n|$)/gim, /<(p|div|span)\b[^>]*>\s*\{\{\s*unsubscribe_url\s*\}\}\s*<\/\1>/gi]
+
+// The message without bare placeholders, and whether it still places the
+// unsubscribe link itself, in words of its own ("Unsubscribe: {{…}}") or a
+// link (<a href="{{unsubscribe_url}}">…</a>).
+export const placeUnsubscribe = (message: string) => {
+  const cleaned = BARE_UNSUBSCRIBE.reduce((m, re) => m.replace(re, ''), message)
+  return { message: cleaned, ownLink: UNSUBSCRIBE_URL.test(cleaned) }
+}
 
 // The line before the unsubscribe link: the domain's own, else one made from its brand.
 export const footerText = (d: Pick<Domain, 'footer' | 'brand' | 'name'>) => d.footer || `You are receiving this because you subscribed to ${d.brand || d.name} updates.`
@@ -32,7 +44,7 @@ export const broadcastBodies = (
 ) => {
   const footerEscaped = escapeHtml(footer)
   const values = { first_name: to.firstName ?? '', last_name: to.lastName ?? '', email: to.email, unsubscribe_url: unsubscribeUrl }
-  const ownLink = OWN_UNSUBSCRIBE.test(b.message)
+  const { message, ownLink } = placeUnsubscribe(b.message)
   const subject = fillVariables(b.subject, values)
   // The line inboxes show after the subject.
   const preheader = b.previewText ? `<div style="display:none;max-height:0;overflow:hidden">${escapeHtml(fillVariables(b.previewText, values))}</div>\n` : ''
@@ -41,12 +53,12 @@ export const broadcastBodies = (
     : `<p style="margin:32px 0 0;font-size:12px;color:#68685f">${footerEscaped} <a href="${escapeHtml(unsubscribeUrl)}" style="color:#68685f">Unsubscribe</a></p>`
 
   if (b.format === 'html') {
-    const filled = fillVariables(b.message, Object.fromEntries(Object.entries(values).map(([k, v]) => [k, escapeHtml(v)])))
+    const filled = fillVariables(message, Object.fromEntries(Object.entries(values).map(([k, v]) => [k, escapeHtml(v)])))
     // Inside the document if it is a whole one, else simply after the fragment.
     const html = /<\/body>/i.test(filled) ? filled.replace(/<\/body>/i, `${footerHtml}</body>`).replace(/<body[^>]*>/i, (tag) => tag + preheader) : preheader + filled + footerHtml
     return { subject, html, text: htmlToText(filled) + (ownLink ? '' : `\n\n—\n${footer}\nUnsubscribe: ${unsubscribeUrl}`) }
   }
-  const filled = fillVariables(b.message, values).trim()
+  const filled = fillVariables(message, values).trim()
   return {
     subject,
     text: filled + (ownLink ? '' : `\n\n—\n${footer}\nUnsubscribe: ${unsubscribeUrl}`),
@@ -132,7 +144,7 @@ const sendBatch = async (db: Db, send: Send, publicUrl: string, b: typeof broadc
       }).catch((err): SendResponse => ({ ok: false, code: 'send_failed', message: String(err) }))
 
       if (result.ok) {
-        await db.update(broadcastRecipient).set({ status: 'sent' }).where(eq(broadcastRecipient.id, r.id))
+        await db.update(broadcastRecipient).set({ status: 'sent', messageId: result.messageId }).where(eq(broadcastRecipient.id, r.id))
       } else if (BACK_OFF.has(result.code)) {
         backOff = true
         await release(r.id)
@@ -218,16 +230,21 @@ export const domainFooter = async (db: Db, domainId: number) => footerText((awai
 // Sample values for the placeholders where there is no real subscriber.
 const SAMPLE = { firstName: 'Alex', lastName: 'Sample' }
 
-// The HTML a subscriber would get, with a dead unsubscribe link.
-export const previewHtml = async (db: Db, b: typeof broadcast.$inferSelect) =>
-  broadcastBodies(b, await domainFooter(db, b.domainId), '#', { email: 'you@example.com', ...SAMPLE }).html
+// The unsubscribe link of a preview or test email: it opens a page saying
+// it is a sample (routes/public.ts), and unsubscribes nobody.
+export const SAMPLE_TOKEN = 'example'
+export const sampleUnsubscribeUrl = (publicUrl: string) => unsubscribeUrl(publicUrl, SAMPLE_TOKEN)
+
+// The HTML a subscriber would get, with a sample unsubscribe link.
+export const previewHtml = async (db: Db, b: typeof broadcast.$inferSelect, publicUrl: string) =>
+  broadcastBodies(b, await domainFooter(db, b.domainId), sampleUnsubscribeUrl(publicUrl), { email: 'you@example.com', ...SAMPLE }).html
 
 // Send a draft as a normal email (default: to its sender) to check it.
 export const sendTestBroadcast = async (
   env: Env,
   db: Db,
   draft: { subject: string; message: string; format: BodyFormat; previewText?: string },
-  { from, domainId, to, source }: { from?: string; domainId?: number; to?: string; source: string },
+  { from, domainId, to, source, publicUrl }: { from?: string; domainId?: number; to?: string; source: string; publicUrl: string },
 ) => {
   const sender = await resolveSender(db, { address: from, domainId })
   if (!sender) return { ok: false as const, status: 400 as const, error: from ? 'unknown_sender' : 'no_mailbox' }
@@ -237,7 +254,7 @@ export const sendTestBroadcast = async (
     from: sender.email,
     to: [recipient],
     // No real link outside a broadcast; placeholders show sample values.
-    ...broadcastBodies({ ...draft, subject: `[Test] ${draft.subject}` }, await domainFooter(db, sender.domainId), '#', { email: recipient, ...SAMPLE }),
+    ...broadcastBodies({ ...draft, subject: `[Test] ${draft.subject}` }, await domainFooter(db, sender.domainId), sampleUnsubscribeUrl(publicUrl), { email: recipient, ...SAMPLE }),
     source,
     record: false,
   })
@@ -278,4 +295,78 @@ export const cancelBroadcast = async (db: Db, id: number) => {
   if (!stopped) return null
   await db.delete(broadcastRecipient).where(and(eq(broadcastRecipient.broadcastId, id), eq(broadcastRecipient.status, 'pending')))
   return { status: 'canceled' as const }
+}
+
+// ---- Delivery ----------------------------------------------------------------
+
+// Where each recipient is, in one word: not sent yet, sending failed, or the
+// last delivery event (bounced, delivered, …), else `sent`.
+export const RECIPIENT_STATES = ['pending', 'sent', 'delivered', 'delivery_delayed', 'bounced', 'complained', 'failed', 'suppressed'] as const
+export type RecipientState = (typeof RECIPIENT_STATES)[number]
+
+const recipientState = sql<RecipientState>`CASE
+  WHEN ${broadcastRecipient.status} IN ('pending', 'claimed') THEN 'pending'
+  WHEN ${broadcastRecipient.status} = 'failed' THEN 'failed'
+  WHEN ${broadcastRecipient.delivery} <> '' THEN ${broadcastRecipient.delivery}
+  ELSE 'sent' END`
+
+// How many recipients are in each state.
+export const deliveryCounts = async (db: Db, broadcastId: number) => {
+  const rows = await db
+    .select({ state: recipientState, n: sql<number>`count(*)` })
+    .from(broadcastRecipient)
+    .where(eq(broadcastRecipient.broadcastId, broadcastId))
+    .groupBy(recipientState)
+  return Object.fromEntries(RECIPIENT_STATES.map((s) => [s, rows.find((r) => r.state === s)?.n ?? 0])) as Record<RecipientState, number>
+}
+
+// Recipients of a broadcast, a page at a time (`after`: the last id of the
+// previous page), optionally in one state.
+export const listRecipients = async (db: Db, broadcastId: number, { state, after, limit = 100 }: { state?: RecipientState; after?: number; limit?: number }) => {
+  const rows = await db
+    .select({
+      id: broadcastRecipient.id,
+      email: broadcastRecipient.email,
+      state: recipientState,
+      error: broadcastRecipient.error,
+      deliveryAt: broadcastRecipient.deliveryAt,
+    })
+    .from(broadcastRecipient)
+    .where(and(eq(broadcastRecipient.broadcastId, broadcastId), state ? sql`${recipientState} = ${state}` : undefined, after ? gt(broadcastRecipient.id, after) : undefined))
+    .orderBy(broadcastRecipient.id)
+    .limit(limit + 1)
+  const page = rows.slice(0, limit)
+  return { recipients: page, next: rows.length > limit ? page.at(-1)!.id : null }
+}
+
+// A delivery event about a broadcast email: by Email Sending's message id,
+// else (ids do not always survive the trip) the latest broadcast from that
+// sender to that recipient in the last 3 days. Never overwrites a worse or
+// more final status. Returns whether one was found.
+export const recordBroadcastDelivery = async (db: Db, messageId: string, status: string, hint?: { sender?: string; recipient?: string }) => {
+  let row = messageId
+    ? await db.query.broadcastRecipient.findFirst({ columns: { id: true, delivery: true }, where: eq(broadcastRecipient.messageId, messageId) })
+    : undefined
+  if (!row && hint?.sender && hint.recipient) {
+    const [found] = await db
+      .select({ id: broadcastRecipient.id, delivery: broadcastRecipient.delivery })
+      .from(broadcastRecipient)
+      .innerJoin(broadcast, eq(broadcast.id, broadcastRecipient.broadcastId))
+      .where(
+        and(
+          eq(broadcastRecipient.email, bareAddress(hint.recipient)),
+          eq(broadcastRecipient.status, 'sent'),
+          eq(broadcast.fromAddr, bareAddress(hint.sender)),
+          gt(broadcast.createdAt, new Date(Date.now() - 3 * 86_400_000).toISOString()),
+        ),
+      )
+      .orderBy(desc(broadcastRecipient.id))
+      .limit(1)
+    row = found
+  }
+  if (!row) return false
+  if ((DELIVERY_RANK[status] ?? 0) >= (DELIVERY_RANK[row.delivery] ?? 0)) {
+    await db.update(broadcastRecipient).set({ delivery: status, deliveryAt: new Date().toISOString() }).where(eq(broadcastRecipient.id, row.id))
+  }
+  return true
 }

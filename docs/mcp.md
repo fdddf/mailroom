@@ -41,7 +41,7 @@ The same API keys as the [integration API](api.md), or an app's OAuth connection
 | *(any key)* | `get_domain` |
 | `contacts` | `list_segments`, `add_contacts`, `list_contacts`, `get_contact`, `unsubscribe_contact`, `delete_contact` |
 | `send` | `send_email` |
-| `broadcasts` | `list_broadcasts`, `get_broadcast`, `create_broadcast`, `update_broadcast`, `send_test_broadcast`, `send_broadcast`, `cancel_broadcast` |
+| `broadcasts` | `list_broadcasts`, `get_broadcast`, `list_broadcast_recipients`, `create_broadcast`, `update_broadcast`, `send_test_broadcast`, `send_broadcast`, `cancel_broadcast` |
 
 A key with only `contacts` lets an assistant manage the list without being able to send anything.
 
@@ -57,7 +57,8 @@ A key with only `contacts` lets an assistant manage the list without being able 
 | `unsubscribe_contact` | Broadcasts skip them from now on |
 | `delete_contact` | Forget them entirely, e.g. a test entry or a data deletion request. Their unsubscribe goes too, so prefer `unsubscribe_contact` for someone who opted out |
 | `send_email` | One email now, to at most 50 recipients who all see each other. Not for mailings |
-| `list_broadcasts`, `get_broadcast` | Status (`draft`, `queued`, `sending`, `sent`, `canceled`), progress and failures |
+| `list_broadcasts`, `get_broadcast` | Status (`draft`, `queued`, `sending`, `sent`, `canceled`), progress, failures, and how many emails were delivered, bounced or complained about |
+| `list_broadcast_recipients` | Who it went to and what became of each email; filter by state, e.g. `bounced` |
 | `create_broadcast` | A draft for the subscribed contacts of a segment; sends nothing, and says how many it would reach |
 | `update_broadcast` | Change fields of a draft |
 | `send_test_broadcast` | One copy to a single address (default: the sender), with sample names and `[Test]` in the subject |
@@ -78,7 +79,11 @@ The tools are built so that nothing goes out by accident:
 
 The server tells the assistant to send only after you approve; Claude Code also asks before each tool call unless you allow it. Keep `send_broadcast` on "ask".
 
-Placeholders in a broadcast's subject and message: `{{first_name}}`, `{{last_name}}`, `{{email}}`, `{{unsubscribe_url}}`. The unsubscribe footer is added unless the message places `{{unsubscribe_url}}` itself.
+Placeholders in a broadcast's subject and message: `{{first_name}}`, `{{last_name}}`, `{{email}}`, `{{unsubscribe_url}}`. Every email ends with a footer saying why the person gets it, and an Unsubscribe link. A message that words the link itself (`Unsubscribe: {{unsubscribe_url}}`, or `<a href="{{unsubscribe_url}}">…</a>`) goes without the footer; a bare `{{unsubscribe_url}}` on a line of its own is dropped and the footer added.
+
+## Delivery status
+
+Broadcasts made here show in the dashboard under **Broadcasts** (with the domain or "All domains" selected), marked with the app or key that made them. Each recipient's email is followed through Email Sending's delivery events: delivered, delayed, bounced, complained. This needs the domain's events subscribed to the `mailroom-events` queue (step 3 in [domains.md](domains.md)); without it, recipients stay at "sent".
 
 Only add people who asked for your email: the law, and Cloudflare's terms for Email Sending, expect it.
 
