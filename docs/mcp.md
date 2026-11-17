@@ -39,7 +39,7 @@ The same API keys as the [integration API](api.md), or an app's OAuth connection
 | Scope | Tools |
 | --- | --- |
 | *(any key)* | `get_domain` |
-| `contacts` | `list_segments`, `add_contacts`, `list_contacts`, `get_contact`, `unsubscribe_contact` |
+| `contacts` | `list_segments`, `add_contacts`, `list_contacts`, `get_contact`, `unsubscribe_contact`, `delete_contact` |
 | `send` | `send_email` |
 | `broadcasts` | `list_broadcasts`, `get_broadcast`, `create_broadcast`, `update_broadcast`, `send_test_broadcast`, `send_broadcast`, `cancel_broadcast` |
 
@@ -55,6 +55,7 @@ A key with only `contacts` lets an assistant manage the list without being able 
 | `list_contacts` | Newest first, by segment, status (`subscribed`, `unsubscribed`) or part of the address or name, a page at a time |
 | `get_contact` | One contact, with their segments |
 | `unsubscribe_contact` | Broadcasts skip them from now on |
+| `delete_contact` | Forget them entirely, e.g. a test entry or a data deletion request. Their unsubscribe goes too, so prefer `unsubscribe_contact` for someone who opted out |
 | `send_email` | One email now, to at most 50 recipients who all see each other. Not for mailings |
 | `list_broadcasts`, `get_broadcast` | Status (`draft`, `queued`, `sending`, `sent`, `canceled`), progress and failures |
 | `create_broadcast` | A draft for the subscribed contacts of a segment; sends nothing, and says how many it would reach |

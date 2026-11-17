@@ -225,6 +225,25 @@ const register = (server: McpServer, x: Ctx) => {
         return rows.length ? text({ ok: true, email }) : fail('not_found', `${email} is not a contact of ${x.domain.name}`)
       },
     )
+
+    server.registerTool(
+      'delete_contact',
+      {
+        title: 'Delete contact',
+        _meta: oauthScope('contacts'),
+        description:
+          'Forget a contact entirely: their record, segments and unsubscribe status go, and cannot be restored. For test entries and data deletion requests. For someone who no longer wants email, use unsubscribe_contact instead: once deleted, nothing stops them being added back.',
+        inputSchema: { email: emailArg },
+        annotations: { destructiveHint: true, idempotentHint: true },
+      },
+      async ({ email }) => {
+        const rows = await x.db
+          .delete(contact)
+          .where(and(eq(contact.domainId, x.domain.id), eq(contact.email, email)))
+          .returning({ id: contact.id })
+        return rows.length ? text({ ok: true, deleted: email }) : fail('not_found', `${email} is not a contact of ${x.domain.name}`)
+      },
+    )
   }
 
   if (may('send')) {
