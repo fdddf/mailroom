@@ -39,9 +39,9 @@ The same API keys as the [integration API](api.md), or an app's OAuth connection
 | Scope | Tools |
 | --- | --- |
 | *(any key)* | `get_domain` |
-| `contacts` | `list_segments`, `add_contacts`, `list_contacts`, `get_contact`, `unsubscribe_contact`, `delete_contact` |
+| `contacts` | `list_segments`, `create_segment`, `delete_segment`, `add_contacts`, `remove_from_segment`, `list_contacts`, `get_contact`, `unsubscribe_contact`, `delete_contact` |
 | `send` | `send_email` |
-| `broadcasts` | `list_broadcasts`, `get_broadcast`, `list_broadcast_recipients`, `create_broadcast`, `update_broadcast`, `send_test_broadcast`, `send_broadcast`, `cancel_broadcast` |
+| `broadcasts` | `update_domain_footer`, `list_broadcasts`, `get_broadcast`, `list_broadcast_recipients`, `create_broadcast`, `update_broadcast`, `send_test_broadcast`, `send_broadcast`, `cancel_broadcast` |
 
 A key with only `contacts` lets an assistant manage the list without being able to send anything.
 
@@ -49,14 +49,18 @@ A key with only `contacts` lets an assistant manage the list without being able 
 
 | Tool | |
 | --- | --- |
-| `get_domain` | The domain, its mailboxes (senders), its segments with their subscriber counts, and the key's scopes |
+| `get_domain` | The domain, its mailboxes (senders), its segments with their subscriber counts, the footer its broadcasts end with (with `broadcasts`), and the key's scopes |
 | `list_segments` | Segments with how many subscribed contacts each has |
+| `create_segment` | An empty segment. Only needed for one that starts empty: `add_contacts` makes the segments it is given |
+| `delete_segment` | Delete a segment; its contacts stay, in their other segments and as subscribed as they were. Drafts written for it lose their segment. Refused while a queued broadcast is waiting to go to it |
 | `add_contacts` | Up to 1,000 contacts in one call, put in the given segments (made if missing). Someone already on file gets the names given and the segments, but keeps their subscription: an unsubscribed contact stays unsubscribed. Invalid addresses are skipped and listed |
+| `remove_from_segment` | Take up to 1,000 contacts out of one segment. They stay on file, in their other segments, and subscribed; to stop all broadcasts to someone use `unsubscribe_contact` |
 | `list_contacts` | Newest first, by segment, status (`subscribed`, `unsubscribed`) or part of the address or name, a page at a time |
 | `get_contact` | One contact, with their segments |
 | `unsubscribe_contact` | Broadcasts skip them from now on |
 | `delete_contact` | Forget them entirely, e.g. a test entry or a data deletion request. Their unsubscribe goes too, so prefer `unsubscribe_contact` for someone who opted out |
 | `send_email` | One email now, to at most 50 recipients who all see each other. Not for mailings |
+| `update_domain_footer` | The line every broadcast ends with, before its Unsubscribe link (one line, at most 300 characters; empty for the default). The same setting as **Broadcast footer** on the domain's page, and it applies to every broadcast sent from then on |
 | `list_broadcasts`, `get_broadcast` | Status (`draft`, `queued`, `sending`, `sent`, `canceled`), progress, failures, and how many emails were delivered, bounced or complained about |
 | `list_broadcast_recipients` | Who it went to and what became of each email; filter by state, e.g. `bounced` |
 | `create_broadcast` | A draft for the subscribed contacts of a segment; sends nothing, and says how many it would reach |
@@ -79,7 +83,7 @@ The tools are built so that nothing goes out by accident:
 
 The server tells the assistant to send only after you approve; Claude Code also asks before each tool call unless you allow it. Keep `send_broadcast` on "ask".
 
-Placeholders in a broadcast's subject and message: `{{first_name}}`, `{{last_name}}`, `{{email}}`, `{{unsubscribe_url}}`. Every email ends with a footer saying why the person gets it, and an Unsubscribe link. A message that words the link itself (`Unsubscribe: {{unsubscribe_url}}`, or `<a href="{{unsubscribe_url}}">…</a>`) goes without the footer; a bare `{{unsubscribe_url}}` on a line of its own is dropped and the footer added.
+Placeholders in a broadcast's subject and message: `{{first_name}}`, `{{last_name}}`, `{{email}}`, `{{unsubscribe_url}}`. Every email ends with the domain's footer, saying why the person gets it, and an Unsubscribe link; `update_domain_footer` changes it for all broadcasts. A message that words the link itself (`Unsubscribe: {{unsubscribe_url}}`, or `<a href="{{unsubscribe_url}}">…</a>`) goes without the footer; a bare `{{unsubscribe_url}}` on a line of its own is dropped and the footer added.
 
 ## Delivery status
 

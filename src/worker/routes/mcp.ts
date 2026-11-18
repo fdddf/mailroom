@@ -16,13 +16,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
-import { and, asc, desc, eq, like, lt, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, like, lt, sql, type SQL } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
-import { BODY_FORMATS, broadcast, broadcastRecipient, contact, mailbox, segment, type ApiScope, type Broadcast, type Domain } from '../db/schema'
+import { BODY_FORMATS, broadcast, broadcastRecipient, contact, contactSegment, domain, mailbox, segment, type ApiScope, type Broadcast, type Domain } from '../db/schema'
 import type { AppEnv, Env } from '../env'
-import { RECIPIENT_STATES, cancelBroadcast, deliveryCounts, listRecipients, queueBroadcast, sendTestBroadcast, subscriberCount } from '../lib/broadcast'
+import { RECIPIENT_STATES, cancelBroadcast, deliveryCounts, footerText, listRecipients, queueBroadcast, sendTestBroadcast, subscriberCount } from '../lib/broadcast'
 import { ensureSegments, importContacts, segmentNamesOf } from '../lib/contacts'
 import { emailConfigured, resolveSender, sendMail } from '../lib/mailer'
 import { htmlToText, isEmail, parseAddressList } from '../lib/text'
@@ -32,6 +32,8 @@ import { mcpPathDomain, verifyAccessToken, wwwAuthenticate } from '../lib/oauth'
 import { API_KEY, findApiKey } from './v1'
 
 const MAX_ADD = 1000
+// Addresses per DELETE in remove_from_segment, under D1's 100 bound parameters.
+const REMOVE_CHUNK = 90
 
 // Who is calling: an API key, or an app signed in with OAuth.
 type Caller = AppEnv['Variables']['caller']
@@ -81,7 +83,7 @@ const segmentName = async (x: Ctx, id: number | null) => (id ? ((await x.db.quer
 
 const unknownSegment = async (x: Ctx, name: string) => {
   const names = (await x.db.select({ name: segment.name }).from(segment).where(eq(segment.domainId, x.domain.id))).map((s) => s.name)
-  return fail('unknown_segment', `No segment "${name}" on ${x.domain.name}. Segments: ${names.length ? names.join(', ') : 'none yet (add_contacts makes them)'}`)
+  return fail('unknown_segment', `No segment "${name}" on ${x.domain.name}. Segments: ${names.length ? names.join(', ') : 'none yet (create_segment or add_contacts makes them)'}`)
 }
 
 // The broadcast fields an assistant writes.
@@ -93,7 +95,7 @@ const draftFields = {
     .min(1)
     .max(200_000)
     .describe(
-      'The email. Placeholders: {{first_name}}, {{last_name}}, {{email}}. Do not end it with an unsubscribe line: a footer saying why they get it, with an Unsubscribe link, is added to every email. Only to word that yourself, use {{unsubscribe_url}} in a sentence or link, e.g. <a href="{{unsubscribe_url}}">Unsubscribe</a>; a bare {{unsubscribe_url}} on its own line is dropped.',
+      'The email. Placeholders: {{first_name}}, {{last_name}}, {{email}}. Do not end it with an unsubscribe line: the domain\'s footer (see get_domain), saying why they get it, with an Unsubscribe link, is added to every email. Only to word that yourself for this one email, use {{unsubscribe_url}} in a sentence or link, e.g. <a href="{{unsubscribe_url}}">Unsubscribe</a>; a bare {{unsubscribe_url}} on its own line is dropped.',
     ),
   format: z.enum(BODY_FORMATS).default('text').describe('"text" (HTML is made from it) or "html" (the text part is made from it)'),
   previewText: z.string().trim().max(200).default('').describe('Optional line that inboxes show after the subject'),
@@ -118,7 +120,7 @@ const register = (mcp: McpServer, x: Ctx) => {
     {
       title: 'Domain',
       _meta: oauthScope(),
-      description: "The domain this key is for, its mailboxes (senders), its segments with how many subscribed contacts each has, and the key's scopes.",
+      description: "The domain this key is for, its mailboxes (senders), its segments with how many subscribed contacts each has, the footer its broadcasts end with, and the key's scopes.",
       annotations: { readOnlyHint: true },
     },
     async () => {
@@ -130,6 +132,7 @@ const register = (mcp: McpServer, x: Ctx) => {
         emailSending: emailConfigured(x.env),
         mailboxes: boxes,
         segments: may('contacts') || may('broadcasts') ? await segmentsOf(x) : undefined,
+        footer: may('broadcasts') ? footerView(x.domain) : undefined,
       })
     },
   )
@@ -139,6 +142,45 @@ const register = (mcp: McpServer, x: Ctx) => {
       'list_segments',
       { _meta: oauthScope('contacts'), title: 'Segments', description: 'Segments (lists) of the domain, with how many subscribed contacts each has.', annotations: { readOnlyHint: true } },
       async () => text(await segmentsOf(x)),
+    )
+
+    server.registerTool(
+      'create_segment',
+      {
+        title: 'Create a segment',
+        _meta: oauthScope('contacts'),
+        description: 'Make an empty segment (list) to put contacts in later. add_contacts also makes the segments it is given, so this is only needed for one that starts empty. A segment that already exists is left as it is.',
+        inputSchema: { name: z.string().trim().min(1).max(100).describe('Segment name, e.g. "newsletter"') },
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async ({ name }) => {
+        const [row] = await x.db.insert(segment).values({ domainId: x.domain.id, name }).onConflictDoNothing().returning({ id: segment.id })
+        const seg = row ?? (await findSegment(x, name))!
+        return text({ name, created: Boolean(row), subscribers: await subscriberCount(x.db, seg.id) })
+      },
+    )
+
+    server.registerTool(
+      'delete_segment',
+      {
+        title: 'Delete a segment',
+        _meta: oauthScope('contacts'),
+        description:
+          'Delete a segment. Its contacts stay on file, subscribed or not as they were, and stay in their other segments; they are only no longer in this one. Drafts written for it lose their segment and need another before sending. Refused while a queued broadcast is waiting to go to it: cancel_broadcast first. Confirm with the user first: it cannot be undone.',
+        inputSchema: { name: z.string().trim().min(1).describe('Segment name (see list_segments)') },
+        annotations: { destructiveHint: true, idempotentHint: true },
+      },
+      async ({ name }) => {
+        const seg = await findSegment(x, name)
+        if (!seg) return unknownSegment(x, name)
+        const uses = await x.db.select({ id: broadcast.id, status: broadcast.status }).from(broadcast).where(eq(broadcast.segmentId, seg.id))
+        // A queued broadcast picks its recipients from the segment when it starts.
+        const queued = uses.filter((b) => b.status === 'queued').map((b) => b.id)
+        if (queued.length) return fail('segment_in_use', `Queued broadcast${queued.length > 1 ? 's' : ''} ${queued.join(', ')} will go to "${name}"; cancel_broadcast first, or leave the segment`)
+        const members = await x.db.$count(contactSegment, eq(contactSegment.segmentId, seg.id))
+        await x.db.delete(segment).where(eq(segment.id, seg.id))
+        return text({ ok: true, deleted: name, contactsInIt: members, draftsWithoutSegment: uses.filter((b) => b.status === 'draft').map((b) => b.id) })
+      },
     )
 
     server.registerTool(
@@ -167,6 +209,42 @@ const register = (mcp: McpServer, x: Ctx) => {
         const ids = valid.length ? await ensureSegments(x.db, x.domain.id, segments) : []
         const result = valid.length ? await importContacts(x.db, x.domain.id, valid, ids, { fillNames: true }) : { added: 0, existing: 0 }
         return text({ ...result, invalid, segments })
+      },
+    )
+
+    server.registerTool(
+      'remove_from_segment',
+      {
+        title: 'Remove from a segment',
+        _meta: oauthScope('contacts'),
+        description: `Take up to ${MAX_ADD} contacts out of one segment. They stay on file and in their other segments, and their subscription is unchanged: to stop all broadcasts to someone, use unsubscribe_contact. Addresses that are not in the segment are listed.`,
+        inputSchema: {
+          segment: z.string().trim().min(1).describe('Segment name (see list_segments)'),
+          emails: z.array(emailArg).min(1).max(MAX_ADD),
+        },
+        annotations: { destructiveHint: true, idempotentHint: true },
+      },
+      async ({ segment: name, emails }) => {
+        const seg = await findSegment(x, name)
+        if (!seg) return unknownSegment(x, name)
+        const unique = [...new Set(emails)]
+        const removed: string[] = []
+        for (let i = 0; i < unique.length; i += REMOVE_CHUNK) {
+          const chunk = unique.slice(i, i + REMOVE_CHUNK)
+          const ids = await x.db
+            .select({ id: contact.id, email: contact.email })
+            .from(contact)
+            .where(and(eq(contact.domainId, x.domain.id), inArray(contact.email, chunk)))
+          if (!ids.length) continue
+          const gone = await x.db
+            .delete(contactSegment)
+            .where(and(eq(contactSegment.segmentId, seg.id), inArray(contactSegment.contactId, ids.map((r) => r.id))))
+            .returning({ contactId: contactSegment.contactId })
+          const goneIds = new Set(gone.map((r) => r.contactId))
+          removed.push(...ids.filter((r) => goneIds.has(r.id)).map((r) => r.email))
+        }
+        const done = new Set(removed)
+        return text({ segment: name, removed: removed.length, notInSegment: unique.filter((e) => !done.has(e)), subscribers: await subscriberCount(x.db, seg.id) })
       },
     )
 
@@ -307,6 +385,28 @@ const register = (mcp: McpServer, x: Ctx) => {
   }
 
   if (may('broadcasts')) {
+    server.registerTool(
+      'update_domain_footer',
+      {
+        title: 'Change the broadcast footer',
+        _meta: oauthScope('broadcasts'),
+        description:
+          'Set the line every broadcast of the domain ends with, before its Unsubscribe link: usually why the reader gets this email. One line of plain text. It applies to every broadcast sent from now on, including queued ones and one that is going out, so confirm the wording with the user first. An empty footer goes back to the default. To word the end of a single broadcast instead, put {{unsubscribe_url}} in its message.',
+        inputSchema: {
+          footer: z
+            .string()
+            .max(300)
+            .transform((v) => v.replace(/\s+/g, ' ').trim())
+            .describe('e.g. "You get this because you signed up at example.com." Empty for the default'),
+        },
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async ({ footer }) => {
+        const [row] = await x.db.update(domain).set({ footer }).where(eq(domain.id, x.domain.id)).returning()
+        return text({ ok: true, footer: footerView(row!) })
+      },
+    )
+
     server.registerTool(
       'list_broadcasts',
       { _meta: oauthScope('broadcasts'), title: 'Broadcasts', description: 'The domain’s latest 50 broadcasts, newest first, with their status and progress.', annotations: { readOnlyHint: true } },
@@ -503,6 +603,9 @@ const segmentsOf = async (x: Ctx) =>
     .from(segment)
     .where(eq(segment.domainId, x.domain.id))
     .orderBy(asc(segment.name))
+
+// The footer as broadcasts use it, and whether it is the domain's own wording.
+const footerView = (d: Domain) => ({ text: footerText(d), custom: Boolean(d.footer) })
 
 // last_used_at of a grant is written at most this often.
 const TOUCH_MS = 60_000
