@@ -2,7 +2,7 @@
 
 Mailroom is also a [Model Context Protocol](https://modelcontextprotocol.io) server, so an AI assistant on your computer can work with one of your domains: add contacts, write a broadcast, test it and send it, or send a single email.
 
-Address: your `PUBLIC_URL` followed by `/mcp`, e.g. `https://mailroom.example.com/mcp` (Streamable HTTP, stateless).
+Address: your `PUBLIC_URL` followed by `/mcp/` and the domain, e.g. `https://mailroom.example.com/mcp/example.com` (Streamable HTTP, stateless). Each domain has its own address, shown on its page in the dashboard; with several domains, add one server or connector per domain. Plain `/mcp` works too, for whichever domain the key or connection is for, but apps such as claude.ai allow only one connector per URL, so use the domain's address there.
 
 ## Connecting Claude Code
 
@@ -10,7 +10,7 @@ Address: your `PUBLIC_URL` followed by `/mcp`, e.g. `https://mailroom.example.co
 2. Add the server:
 
 ```bash
-claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
+claude mcp add --transport http mailroom-example https://mailroom.example.com/mcp/example.com \
   --header "Authorization: Bearer mr_…"
 ```
 
@@ -22,19 +22,19 @@ Any other MCP client that can send an `Authorization` header connects the same w
 
 Apps that cannot send a header sign in with OAuth instead; Mailroom is its own OAuth server, and there is nothing to set up beforehand.
 
-1. Add `https://mailroom.example.com/mcp` as a custom connector (ChatGPT: with developer mode on, in its apps/connectors settings; claude.ai: in its connectors settings). Choose OAuth if asked.
-2. A Mailroom page opens: pick the **domain**, untick anything the app should not do, and enter the **dashboard password**.
+1. Add the domain's address, e.g. `https://mailroom.example.com/mcp/example.com`, as a custom connector (ChatGPT: with developer mode on, in its apps/connectors settings; claude.ai: in its connectors settings). Choose OAuth if asked.
+2. A Mailroom page opens for that domain: untick anything the app should not do, and enter the **dashboard password**. (Connected at plain `/mcp`, the page asks which domain.)
 3. The app is connected to that domain. It is listed under **Connected apps** on the domain's page, where **Disconnect** signs it out at once.
 
-One connection is one domain; connect again for another. Access tokens last an hour and are renewed by the app; a connection not used for 30 days lapses.
+One connection is one domain; for another, add a second connector with that domain's address. A key or connection for one domain is turned away at another domain's address. Access tokens last an hour and are renewed by the app; a connection not used for 30 days lapses.
 
-What it implements, for the curious: MCP authorization (2025-11-25): protected resource metadata at `/.well-known/oauth-protected-resource/mcp` (and at the root), authorization server metadata at `/.well-known/oauth-authorization-server`, client ID metadata documents (what ChatGPT prefers) and dynamic client registration at `/oauth/register` (what Claude uses), authorization code with PKCE S256 only, `resource` checked, `iss` in every authorization response, and refresh tokens rotated on every use. Codes and tokens are random and kept only as hashes.
+What it implements, for the curious: MCP authorization (2025-11-25): protected resource metadata at `/.well-known/oauth-protected-resource/mcp/<domain>` (and `/mcp`, and the root), authorization server metadata at `/.well-known/oauth-authorization-server`, client ID metadata documents (what ChatGPT prefers) and dynamic client registration at `/oauth/register` (what Claude uses), authorization code with PKCE S256 only, `resource` checked, `iss` in every authorization response, and refresh tokens rotated on every use. Codes and tokens are random and kept only as hashes.
 
 If ChatGPT says the client metadata cannot be read, choose dynamic client registration in its connector settings instead.
 
 ## Keys and permissions
 
-The same API keys as the [integration API](api.md), or an app's OAuth connection: either works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain (`mailroom-example`, `mailroom-shop`, …), each with its own key or connection. Each server names its domain in its title, in what it tells the assistant, and at the start of every tool's description, so the assistant can tell them apart; naming the domain in a request (*"…for shop.example"*) helps it pick.
+The same API keys as the [integration API](api.md), or an app's OAuth connection: either works for **one domain**, and the assistant only sees the tools its scopes allow. To work with several domains, add one server per domain at its own address (`mailroom-example` at `/mcp/example.com`, `mailroom-shop` at `/mcp/shop.example`, …), each with its own key or connection. Each server names its domain in its title, in what it tells the assistant, and at the start of every tool's description, so the assistant can tell them apart; naming the domain in a request (*"…for shop.example"*) helps it pick.
 
 | Scope | Tools |
 | --- | --- |

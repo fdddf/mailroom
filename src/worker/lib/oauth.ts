@@ -18,6 +18,7 @@ import { and, eq, gt, inArray, isNull, lt, notExists, sql } from 'drizzle-orm'
 import type { Db } from '../db'
 import { API_SCOPES, oauthClient, oauthGrant, oauthToken, type ApiScope, type OauthClient } from '../db/schema'
 import { pkceChallenge, randomToken, sha256Hex } from './crypto'
+import { isDomainName } from './text'
 
 export const CODE_SECONDS = 10 * 60
 export const ACCESS_SECONDS = 60 * 60
@@ -31,16 +32,18 @@ export const ACCESS_PREFIX = 'mro_'
 const REFRESH_PREFIX = 'mrr_'
 
 // Everything is named after the address the client used, so that the
-// resource it was told to connect to and the metadata agree.
-export const resourceUrl = (origin: string) => origin + MCP_PATH
-export const resourceMetadataUrl = (origin: string) => `${origin}/.well-known/oauth-protected-resource${MCP_PATH}`
+// resource it was told to connect to and the metadata agree. Each domain
+// also has its own address, /mcp/<domain>: apps such as claude.ai allow one
+// connector per URL, so that is how someone with several domains adds each.
+export const resourceUrl = (origin: string, domain?: string) => origin + MCP_PATH + (domain ? `/${domain}` : '')
+export const resourceMetadataUrl = (origin: string, domain?: string) => `${origin}/.well-known/oauth-protected-resource${MCP_PATH}${domain ? `/${domain}` : ''}`
 
-export const protectedResourceMetadata = (origin: string) => ({
-  resource: resourceUrl(origin),
+export const protectedResourceMetadata = (origin: string, domain?: string) => ({
+  resource: resourceUrl(origin, domain),
   authorization_servers: [origin],
   scopes_supported: [...API_SCOPES],
   bearer_methods_supported: ['header'],
-  resource_name: 'Mailroom',
+  resource_name: domain ? `Mailroom · ${domain}` : 'Mailroom',
   resource_documentation: 'https://github.com/fdddf/mailroom/blob/main/docs/mcp.md',
 })
 
@@ -60,8 +63,8 @@ export const authorizationServerMetadata = (origin: string) => ({
 })
 
 // What a 401 from /mcp says, so a client finds where to sign in.
-export const wwwAuthenticate = (origin: string, error?: 'invalid_token') =>
-  `Bearer resource_metadata="${resourceMetadataUrl(origin)}", scope="${API_SCOPES.join(' ')}"${error ? `, error="${error}"` : ''}`
+export const wwwAuthenticate = (origin: string, error?: 'invalid_token', domain?: string) =>
+  `Bearer resource_metadata="${resourceMetadataUrl(origin, domain)}", scope="${API_SCOPES.join(' ')}"${error ? `, error="${error}"` : ''}`
 
 // ---- Checks -----------------------------------------------------------------
 
@@ -86,13 +89,27 @@ export const parseScopes = (scope: string | undefined | null): ApiScope[] => {
   return API_SCOPES.filter((s) => asked.includes(s))
 }
 
-// `resource`, when given, must be this server: the MCP endpoint, or the
-// origin, which some clients send instead.
-export const resourceMatches = (resource: string | undefined | null, origin: string) => {
-  if (!resource) return true
-  const r = resource.replace(/\/$/, '')
-  return r === resourceUrl(origin) || r === origin
+// The domain an MCP address names (/mcp/<domain>), lower-cased; null for
+// /mcp itself or anything else.
+export const mcpPathDomain = (pathname: string) => {
+  const m = pathname.match(/^\/mcp\/([^/]+)\/?$/)
+  if (!m) return null
+  const name = decodeURIComponent(m[1]!).toLowerCase()
+  return isDomainName(name) ? name : null
 }
+
+// What `resource` asks for: '' for the whole server (the MCP endpoint, the
+// origin, which some clients send instead, or nothing), a domain's name for
+// its own address, null for anything that is not this server.
+export const resourceDomain = (resource: string | undefined | null, origin: string): string | null => {
+  if (!resource) return ''
+  const r = resource.replace(/\/$/, '')
+  if (r === resourceUrl(origin) || r === origin) return ''
+  if (!r.startsWith(`${resourceUrl(origin)}/`)) return null
+  return mcpPathDomain(r.slice(origin.length))
+}
+
+export const resourceMatches = (resource: string | undefined | null, origin: string) => resourceDomain(resource, origin) !== null
 
 export const verifyPkce = async (verifier: string, challenge: string) =>
   /^[A-Za-z0-9._~-]{43,128}$/.test(verifier) && (await pkceChallenge(verifier)) === challenge

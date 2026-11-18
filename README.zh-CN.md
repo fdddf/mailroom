@@ -44,7 +44,7 @@ npx wrangler secret put ADMIN_PASSWORD
 
 想用自己的域名访问后台，在 Worker 的 **Settings → Domains & Routes** 添加。邮件里的退订链接默认使用排队群发时后台所在的地址；要固定地址，就在 **Variables and Secrets** 里设置 `PUBLIC_URL`。
 
-建议在后台前面加 Cloudflare Access（保护 `/` 和 `/api/admin/*`，`/v1/*`、`/mcp`、`/oauth/register`、`/oauth/token`、`/.well-known/*`、`/u/*`、`/media/*`、`/f/*`、`/subscribe/*` 保持公开）。
+建议在后台前面加 Cloudflare Access（保护 `/` 和 `/api/admin/*`，`/v1/*`、`/mcp`、`/mcp/*`、`/oauth/register`、`/oauth/token`、`/.well-known/*`、`/u/*`、`/media/*`、`/f/*`、`/subscribe/*` 保持公开）。
 
 单封邮件上限 25 MiB（含附件，附件编码后约增大三分之一），所以最多 17 MiB 的文件作为附件发送；更大的文件以下载链接（`/f/<token>/<文件名>`）发送，持有链接的人都能下载，在 **Files** 里删除文件后链接失效。
 
@@ -76,11 +76,11 @@ curl https://mailroom.example.com/v1/send \
 创建 API key 时勾选助手需要的权限（`contacts` 管理联系人、`send` 发单封、`broadcasts` 群发），然后在 Claude Code 里添加：
 
 ```bash
-claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
+claude mcp add --transport http mailroom-example https://mailroom.example.com/mcp/example.com \
   --header "Authorization: Bearer mr_…"
 ```
 
-ChatGPT 和 claude.ai 不能填请求头，直接把 `https://mailroom.example.com/mcp` 添加为连接器即可：会跳到 Mailroom 的授权页，输入后台密码、选择域名和权限后完成 OAuth 登录。已连接的应用在域名页面的 **Connected apps** 里，可随时断开。
+ChatGPT 和 claude.ai 不能填请求头，把域名自己的地址（如 `https://mailroom.example.com/mcp/example.com`）添加为连接器即可：会跳到该域名的 Mailroom 授权页，输入后台密码、选择权限后完成 OAuth 登录。每个域名一个地址，多个域名就添加多个连接器（claude.ai 同一个 URL 只能加一次）。已连接的应用在域名页面的 **Connected apps** 里，可随时断开。
 
 批量发信一律走群发（Broadcast），和后台一样带退订链接、跳过已退订和退信的联系人；群发要先建草稿，发送时必须带上用户确认过的收件人数，人数变了会被拒绝。工具列表和防误发机制见 [docs/mcp.md](docs/mcp.md)。
 

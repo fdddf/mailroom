@@ -51,7 +51,7 @@ Open the Worker's address, sign in, and add your first domain under **Domains**.
 
 To use your own hostname, add it under the Worker's **Settings → Domains & Routes**. Unsubscribe links use the address the dashboard was on when a broadcast was queued; set the variable `PUBLIC_URL` under **Variables and Secrets** to fix one address instead.
 
-It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/mcp`, `/oauth/register`, `/oauth/token`, `/.well-known/*`, `/u/*`, `/media/*`, `/f/*` and `/subscribe/*` public).
+It is strongly recommended to also put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the dashboard (paths `/` and `/api/admin/*`; leave `/v1/*`, `/mcp`, `/mcp/*`, `/oauth/register`, `/oauth/token`, `/.well-known/*`, `/u/*`, `/media/*`, `/f/*` and `/subscribe/*` public).
 
 ## Adding a domain
 
@@ -81,11 +81,11 @@ Sending, contacts and webhooks are documented in [docs/api.md](docs/api.md).
 Make a key with the scopes the assistant should have (`contacts`, `send`, `broadcasts`), then, for Claude Code:
 
 ```bash
-claude mcp add --transport http mailroom https://mailroom.example.com/mcp \
+claude mcp add --transport http mailroom-example https://mailroom.example.com/mcp/example.com \
   --header "Authorization: Bearer mr_…"
 ```
 
-For ChatGPT or claude.ai, add `https://mailroom.example.com/mcp` as a connector: it signs in with OAuth on a Mailroom page that asks for the dashboard password, the domain and what it may do.
+For ChatGPT or claude.ai, add the domain's address, `https://mailroom.example.com/mcp/example.com`, as a connector: it signs in with OAuth on a Mailroom page that asks for the dashboard password and what it may do. Each domain has its own address, so several domains are several connectors.
 
 Bulk email goes out as a broadcast, with unsubscribe links and suppression as from the dashboard; a broadcast is only sent once its recipient count has been confirmed. Tools and safeguards: [docs/mcp.md](docs/mcp.md).
 

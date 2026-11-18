@@ -8,12 +8,16 @@
 // one domain; each tool needs the scope noted on it, and a caller only sees
 // the tools it may use. Streamable HTTP, stateless: every POST is answered on
 // its own, with JSON. Reference: docs/mcp.md.
+//
+// /mcp/<domain> is the same server under each domain's own address, for
+// apps that allow one connector per URL (claude.ai): signing in there is
+// for that domain, and a key or token for another domain is turned away.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import { and, asc, desc, eq, like, lt, sql, type SQL } from 'drizzle-orm'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { BODY_FORMATS, broadcast, broadcastRecipient, contact, mailbox, segment, type ApiScope, type Broadcast, type Domain } from '../db/schema'
@@ -24,7 +28,7 @@ import { emailConfigured, resolveSender, sendMail } from '../lib/mailer'
 import { htmlToText, isEmail, parseAddressList } from '../lib/text'
 import { getDb } from '../db'
 import { oauthGrant } from '../db/schema'
-import { verifyAccessToken, wwwAuthenticate } from '../lib/oauth'
+import { mcpPathDomain, verifyAccessToken, wwwAuthenticate } from '../lib/oauth'
 import { API_KEY, findApiKey } from './v1'
 
 const MAX_ADD = 1000
@@ -506,13 +510,17 @@ const TOUCH_MS = 60_000
 // An API key (mr_…) or an OAuth access token (mro_…). Without either, the
 // 401 says where to sign in (RFC 9728), which is how an OAuth client starts.
 const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
-  const origin = new URL(c.req.url).origin
+  const { origin, pathname } = new URL(c.req.url)
+  const named = mcpPathDomain(pathname) ?? undefined
   const header = c.req.header('Authorization') || ''
   const token = header.match(/^Bearer\s+(\S+)$/i)?.[1]
   const db = getDb(c.env.DB)
   let caller: Caller | null = null
   if (token && API_KEY.test(`Bearer ${token}`)) {
     const row = await findApiKey(c, db, token)
+    if (row && named && row.domain.name !== named) {
+      return c.json({ error: 'wrong_domain', message: `This key is for ${row.domain.name}: use ${origin}/mcp/${row.domain.name}` }, 403)
+    }
     if (row) {
       c.set('domain', row.domain)
       caller = { name: row.key.name, scopes: row.key.scopes }
@@ -520,7 +528,8 @@ const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
   } else if (token) {
     const row = await verifyAccessToken(db, token)
     const own = row && (await db.query.domain.findFirst({ where: (d, { eq }) => eq(d.id, row.grant.domainId) }))
-    if (row && own) {
+    // Signed in for another domain: sign in again, for this one.
+    if (row && own && (!named || own.name === named)) {
       c.set('domain', own)
       caller = { name: row.clientName || 'oauth', scopes: row.grant.scopes }
       if (!row.grant.lastUsedAt || Date.now() - Date.parse(row.grant.lastUsedAt) > TOUCH_MS) {
@@ -532,7 +541,7 @@ const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
     return c.json(
       { error: 'unauthorized', message: token ? 'Unknown, expired or revoked token' : 'Sign in with OAuth, or send an API key as Authorization: Bearer mr_…' },
       401,
-      { 'WWW-Authenticate': wwwAuthenticate(origin, token ? 'invalid_token' : undefined) },
+      { 'WWW-Authenticate': wwwAuthenticate(origin, token ? 'invalid_token' : undefined, named) },
     )
   }
   c.set('db', db)
@@ -543,16 +552,27 @@ const mcpAuth = createMiddleware<AppEnv>(async (c, next) => {
 // Without sessions there is no stream to open (GET) or end (DELETE).
 const notAllowed = () => new Response(null, { status: 405, headers: { Allow: 'POST' } })
 
+const serve = async (c: Context<AppEnv>) => {
+  const server = new McpServer(
+    { name: 'mailroom', title: `Mailroom · ${c.var.domain!.name}`, version: '0.1.0' },
+    { instructions: instructions(c.var.domain!.name), jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
+  register(server, { env: c.env, db: c.var.db, domain: c.var.domain!, key: c.var.caller, origin: new URL(c.req.url).origin })
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+  await server.connect(transport)
+  return transport.handleRequest(c.req.raw)
+}
+
+// A domain's address that is not a domain name: nothing here.
+const badDomain = createMiddleware<AppEnv>(async (c, next) =>
+  mcpPathDomain(new URL(c.req.url).pathname) ? next() : c.json({ error: 'not_found', message: 'Use /mcp, or /mcp/<domain>' }, 404),
+)
+
 export const mcpRoutes = new Hono<AppEnv>()
   .get('/', notAllowed)
   .delete('/', notAllowed)
+  .use('/:domain', badDomain)
+  .get('/:domain', notAllowed)
+  .delete('/:domain', notAllowed)
   .use(mcpAuth)
-  .post('/', async (c) => {
-    const server = new McpServer(
-      { name: 'mailroom', title: `Mailroom · ${c.var.domain!.name}`, version: '0.1.0' },
-      { instructions: instructions(c.var.domain!.name), jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
-    register(server, { env: c.env, db: c.var.db, domain: c.var.domain!, key: c.var.caller, origin: new URL(c.req.url).origin })
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
-    await server.connect(transport)
-    return transport.handleRequest(c.req.raw)
-  })
+  .post('/', serve)
+  .post('/:domain', serve)

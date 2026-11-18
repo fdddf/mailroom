@@ -6,7 +6,7 @@ import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { composeBody } from '../src/worker/lib/compose'
 import { embedImages, mediaImages, pointToInline } from '../src/worker/lib/inline'
 import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
-import { checkClientMetadata, isMetadataUrl, parseScopes, pickRedirectUri, resourceMatches, validRedirectUri, verifyPkce, wwwAuthenticate } from '../src/worker/lib/oauth'
+import { checkClientMetadata, isMetadataUrl, mcpPathDomain, parseScopes, pickRedirectUri, protectedResourceMetadata, resourceDomain, resourceMatches, validRedirectUri, verifyPkce, wwwAuthenticate } from '../src/worker/lib/oauth'
 import { findBlockRule } from '../src/worker/lib/spam'
 import { deleteAttachments, parseSender } from '../src/worker/lib/mailer'
 import { confirmationEmail, normalizeOrigin, turnstileSecretAccepted, verifyTurnstile } from '../src/worker/lib/subscribe'
@@ -358,6 +358,20 @@ describe('oauth', () => {
     expect(resourceMatches(`${origin}/`, origin)).toBe(true)
     expect(resourceMatches('https://other.example.com/mcp', origin)).toBe(false)
     expect(resourceMatches(`${origin}/v1`, origin)).toBe(false)
+  })
+
+  it("reads a domain's own MCP address", () => {
+    expect(resourceDomain(undefined, origin)).toBe('')
+    expect(resourceDomain(`${origin}/mcp`, origin)).toBe('')
+    expect(resourceDomain(`${origin}/mcp/Example.com`, origin)).toBe('example.com')
+    expect(resourceDomain(`${origin}/mcp/example.com/`, origin)).toBe('example.com')
+    expect(resourceDomain(`${origin}/mcp/not a domain`, origin)).toBeNull()
+    expect(resourceDomain(`${origin}/mcp/a.com/x`, origin)).toBeNull()
+    expect(resourceDomain('https://other.example.com/mcp/a.com', origin)).toBeNull()
+    expect(mcpPathDomain('/mcp/mzjpg.com')).toBe('mzjpg.com')
+    expect(mcpPathDomain('/mcp')).toBeNull()
+    expect(protectedResourceMetadata(origin, 'a.com').resource).toBe(`${origin}/mcp/a.com`)
+    expect(wwwAuthenticate(origin, undefined, 'a.com')).toContain(`${origin}/.well-known/oauth-protected-resource/mcp/a.com`)
   })
 
   it('checks PKCE S256', async () => {

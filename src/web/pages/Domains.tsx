@@ -147,7 +147,7 @@ function DomainDetail({ id }: { id: string }) {
       <Setup id={id} name={d.name} />
       <Settings key={`${d.id}-${d.brand}-${d.footer}-${d.about}-${d.catchAll}`} id={id} initial={d} />
       <ApiKeys id={id} name={d.name} />
-      <ConnectedApps id={id} />
+      <ConnectedApps id={id} name={d.name} />
       <Webhooks id={id} />
       <DeleteDomain id={id} name={d.name} />
     </Stack>
@@ -312,7 +312,7 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
           <Text size="sm">Try it:</Text>
           <Copyable value={`curl ${base}/v1/domain -H "Authorization: Bearer ${key}"`} />
           <Text size="sm">Or add it to Claude Code:</Text>
-          <Copyable value={`claude mcp add --transport http mailroom ${base}/mcp --header "Authorization: Bearer ${key}"`} />
+          <Copyable value={`claude mcp add --transport http mailroom-${name} ${base}/mcp/${name} --header "Authorization: Bearer ${key}"`} />
         </Stack>
       ),
     })
@@ -322,7 +322,7 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
       title="API keys"
       description={
         <>
-          For your own servers and apps, to send email from {name} and manage its contacts through the API ({base}/v1, see docs/api.md), or for an AI assistant through MCP ({base}/mcp, see
+          For your own servers and apps, to send email from {name} and manage its contacts through the API ({base}/v1, see docs/api.md), or for an AI assistant through MCP ({base}/mcp/{name}, see
           docs/mcp.md). A key works for this domain only.
         </>
       }
@@ -413,7 +413,7 @@ function ApiKeys({ id, name }: { id: string; name: string }) {
 }
 
 // Apps that signed in with OAuth to use the MCP server for this domain.
-function ConnectedApps({ id }: { id: string }) {
+function ConnectedApps({ id, name }: { id: string; name: string }) {
   const { data: session } = useSession()
   const apps = useQuery({ queryKey: ['domain-apps', id], queryFn: () => call(api.domains[':id'].apps.$get({ param: { id } })) })
   const revoke = useAction((grantId: number) => call(api.domains[':id'].apps[':grantId'].$delete({ param: { id, grantId: String(grantId) } })), {
@@ -428,11 +428,12 @@ function ConnectedApps({ id }: { id: string }) {
       title="Connected apps"
       description={
         <>
-          AI assistants that signed in to the MCP server for this domain, such as ChatGPT or Claude. Add <Code>{`${base}/mcp`}</Code> as a connector in the app; it asks for the
-          dashboard password, the domain and what it may do. See docs/mcp.md.
+          AI assistants that signed in to the MCP server for this domain, such as ChatGPT or Claude. Add this domain's own address as a connector in the app; it asks for the
+          dashboard password and what it may do. Each domain has its own address, so each can be added. See docs/mcp.md.
         </>
       }
     >
+      <Copyable value={`${base}/mcp/${name}`} />
       {apps.data?.items.length ? (
         <Paper withBorder style={{ overflowX: 'auto' }}>
           <Table verticalSpacing="xs">
