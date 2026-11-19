@@ -6,8 +6,9 @@ import type { Db } from '../db'
 import { contact, contactSegment, segment } from '../db/schema'
 import { newToken } from './broadcast'
 
-// D1 allows 100 bound parameters per statement; a contact row takes 5.
-const INSERT_CHUNK = 18
+// D1 allows 100 bound parameters per statement; a contact row takes 6
+// (domain_id, email, first_name, last_name, unsubscribed, token).
+const INSERT_CHUNK = 16
 
 export type NewContact = { email: string; firstName?: string; lastName?: string }
 
