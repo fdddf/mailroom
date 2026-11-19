@@ -6,3 +6,6 @@ dist/
 !.dev.vars.example
 .DS_Store
 src/worker/worker-configuration.d.ts
+
+# Local pitch-video project (Remotion), not part of the repository
+video/
