@@ -139,6 +139,70 @@ export function MailCard({ mail, collapse = false }: { mail: MailView; collapse?
   )
 }
 
+// The body as a mail app shows it: the HTML version when there is one (remote
+// images still blocked until asked for), else the text; with a switch between them.
+export function MailBody({ mail }: { mail: MailView }) {
+  const [html, setHtml] = useState(mail.hasHtml)
+  const [images, setImages] = useState(false)
+  return (
+    <Stack gap="xs">
+      {mail.hasHtml && (
+        <Group gap="sm" justify="space-between">
+          <Group gap={6}>
+            {html && !images && (
+              <>
+                <Text size="xs" c="dimmed">
+                  Remote images are blocked.
+                </Text>
+                <Button variant="subtle" size="compact-xs" onClick={() => setImages(true)}>
+                  Load images
+                </Button>
+              </>
+            )}
+          </Group>
+          {mail.text && (
+            <Button variant="subtle" color="gray" size="compact-xs" onClick={() => setHtml(!html)}>
+              {html ? 'Plain text' : 'HTML version'}
+            </Button>
+          )}
+        </Group>
+      )}
+      {html ? (
+        <HtmlFrame src={`/api/admin/mail/${mail.id}/html${images ? '?images=1' : ''}`} />
+      ) : mail.text ? (
+        <pre className={classes.body}>{mail.text}</pre>
+      ) : (
+        <Text size="sm" c="dimmed">
+          (no body)
+        </Text>
+      )}
+      {mail.attachments.length > 0 && <AttachmentList mail={mail} />}
+    </Stack>
+  )
+}
+
+function AttachmentList({ mail }: { mail: MailView }) {
+  return (
+    <Group gap="xs">
+      {mail.attachments.map((a) => (
+        <Badge
+          key={a.id}
+          component="a"
+          href={`/api/admin/mail/${mail.id}/attachments/${encodeURIComponent(a.id)}`}
+          target="_blank"
+          rel="noopener"
+          variant="default"
+          leftSection={a.link ? <IconLink size={12} /> : <IconPaperclip size={12} />}
+          title={a.link ? `Sent as a link: ${a.link}` : undefined}
+          style={{ cursor: 'pointer', textTransform: 'none' }}
+        >
+          {a.filename || 'attachment'} ({formatSize(a.size)})
+        </Badge>
+      ))}
+    </Group>
+  )
+}
+
 const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
 type Mailboxes = Session['mailboxes']

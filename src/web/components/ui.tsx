@@ -64,11 +64,13 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 
 // List on the left, detail on the right; one at a time on narrow screens.
 // In a tab of its own (see Shell) an item is shown without the list.
-export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail: ReactNode | null; backTo: string }) {
+// `flush`: the list and detail draw their own chrome (toolbars, borders), as in
+// the inbox; the detail pane gets no padding and no own-tab button.
+export function MasterDetail({ list, detail, backTo, flush = false, empty = 'Select an item on the left.' }: { list: ReactNode; detail: ReactNode | null; backTo: string; flush?: boolean; empty?: string }) {
   const narrow = useMediaQuery('(max-width: 62em)')
   const tab = useTab()
   const { pathname } = useLocation()
-  const ownTab = detail && tab && !tab.solo && (
+  const ownTab = !flush && detail && tab && !tab.solo && (
     <Tooltip label="Open in its own tab">
       <ActionIcon variant="subtle" color="gray" onClick={() => tab.openSolo(pathname)} aria-label="Open in its own tab" style={{ position: 'absolute', top: 8, right: 8 }}>
         <IconArrowUpRight size={18} />
@@ -89,20 +91,22 @@ export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail
           Back to list
         </Button>
         {ownTab}
-        {detail}
+        {flush ? <Paper withBorder style={{ overflow: 'hidden' }}>{detail}</Paper> : detail}
       </Stack>
     ) : (
       <>{list}</>
     )
   }
   return (
-    <SplitPanes list={list}>
-      <Paper withBorder p="lg" miw={0} pos="relative" style={{ height: '100%', overflow: 'auto' }}>
+    <SplitPanes list={list} flush={flush}>
+      <Paper withBorder p={flush ? 0 : 'lg'} miw={0} pos="relative" style={{ height: '100%', overflow: 'auto' }}>
         {ownTab}
         {detail ?? (
-          <Text c="dimmed" size="sm">
-            Select an item on the left.
-          </Text>
+          <Center h={flush ? '100%' : undefined}>
+            <Text c="dimmed" size="sm">
+              {empty}
+            </Text>
+          </Center>
         )}
       </Paper>
     </SplitPanes>
@@ -111,7 +115,7 @@ export function MasterDetail({ list, detail, backTo }: { list: ReactNode; detail
 
 // Two columns that each fill the rest of the viewport and scroll on their own,
 // so scrolling the detail never moves the list.
-function SplitPanes({ list, children }: { list: ReactNode; children: ReactNode }) {
+function SplitPanes({ list, children, flush }: { list: ReactNode; children: ReactNode; flush?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -131,8 +135,8 @@ function SplitPanes({ list, children }: { list: ReactNode; children: ReactNode }
     }
   }, [])
   return (
-    <Box ref={ref} style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: 'var(--mantine-spacing-md)', alignItems: 'stretch', minHeight: 0 }}>
-      <Box style={{ overflow: 'auto', minHeight: 0 }}>{list}</Box>
+    <Box ref={ref} style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: flush ? 'var(--mantine-spacing-xs)' : 'var(--mantine-spacing-md)', alignItems: 'stretch', minHeight: 0 }}>
+      <Box style={{ overflow: flush ? 'hidden' : 'auto', minHeight: 0 }}>{list}</Box>
       {children}
     </Box>
   )

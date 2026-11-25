@@ -219,3 +219,114 @@
 .thumb[data-pick]:hover {
   box-shadow: inset 0 0 0 2px var(--mantine-primary-color-filled);
 }
+
+/* The inbox, laid out like a desktop mail app: a message list pane and a
+   reading pane, each with a toolbar on top and its own scroll. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+}
+.paneHead {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.paneScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.mailRow {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 10px 12px 10px 26px;
+  text-align: left;
+  outline: none;
+}
+.mailRow::after {
+  content: '';
+  position: absolute;
+  left: 26px;
+  right: 12px;
+  bottom: 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.mailRow:hover { background: var(--mantine-color-default-hover); }
+.mailRow[data-active] {
+  background: var(--mantine-primary-color-filled);
+  color: #fff;
+  border-radius: var(--mantine-radius-md);
+}
+.mailRow[data-active]::after { display: none; }
+.mailRow[data-active] .dim { color: rgba(255, 255, 255, 0.82); }
+.mailRow[data-active] .dot { background: #fff; }
+.dot {
+  position: absolute;
+  left: 9px;
+  top: 16px;
+  width: 9px;
+  height: 9px;
+  border-radius: 9px;
+  background: var(--mantine-primary-color-filled);
+}
+.dim { color: var(--mantine-color-dimmed); }
+.line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mailRow .rowCheck {
+  position: absolute;
+  left: 4px;
+  top: 10px;
+}
+.mailRow[data-checkable] { padding-left: 34px; }
+.mailRow[data-checkable] .dot { left: 22px; top: 32px; width: 7px; height: 7px; }
+
+.readToolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.toolGroup {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  padding: 2px 4px;
+}
+.mailHead {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.avatar {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+}
+.readBody {
+  padding: 16px 24px 24px;
+}
+.readBody .frame {
+  min-height: 70vh;
+  border: 0;
+  border-radius: 0;
+}
