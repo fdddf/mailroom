@@ -8,6 +8,7 @@ import { contact, domain, file } from '../db/schema'
 import type { AppEnv } from '../env'
 import { SAMPLE_TOKEN } from '../lib/broadcast'
 import { countDownload, fileKey, parseRange } from '../lib/files'
+import { leavePage, linkSigned, webUrl } from '../lib/links'
 import { IMAGE_TYPES, MEDIA_PREFIX } from './admin/media'
 
 export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -68,6 +69,23 @@ export const publicRoutes = new Hono<AppEnv>()
     }
     // The same answer whether or not the token exists.
     return c.html(page('You are unsubscribed', brand, `<p>Sorry to see you go. You will not hear from ${brand ? escapeHtml(brand) : 'us'} again.</p>`))
+  })
+
+  // The warning page every web link in a received email goes through
+  // (lib/links.ts). Not behind the admin session: the click comes from a
+  // sandboxed frame, which does not send the SameSite=Strict cookie. The
+  // signature is what keeps it from opening other people's links.
+  .get('/api/leave', async (c) => {
+    const raw = c.req.query('url') ?? ''
+    const text = c.req.query('text') ?? ''
+    const url = webUrl(raw)
+    const signed = !!url && !!c.env.ADMIN_PASSWORD && (await linkSigned(c.env.ADMIN_PASSWORD, raw, text, c.req.query('sig') ?? ''))
+    return c.html(leavePage(url, text, signed), url ? 200 : 400, {
+      'Cache-Control': 'no-store',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+      'Referrer-Policy': 'no-referrer',
+      'X-Robots-Tag': 'noindex',
+    })
   })
 
   // An image uploaded for an HTML email (admin/media.ts). Only that prefix of

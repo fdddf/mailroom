@@ -11,6 +11,7 @@ import { bareAddress, likePattern, parseAddressList } from '../../lib/text'
 import { validate } from '../../lib/validate'
 import { filePicks, prepareFiles } from './files'
 import { PAGE_SIZE, domainRequired, idParam, inDomain, snippet, threadColumns } from './shared'
+import { routeLinks } from '../../lib/links'
 
 const listQuery = z.object({
   box: z.enum(['inbox', 'unread', 'archived', 'all']).default('inbox'),
@@ -240,7 +241,13 @@ export const mailRoutes = new Hono<AppEnv>()
     const row = await c.var.db.query.mail.findFirst({ columns: { html: true }, where: eq(mail.id, id) })
     if (!row?.html) return c.text('Not found', 404)
     const images = c.req.query('images') === '1' ? 'data: https:' : 'data:'
-    return c.body(row.html, 200, {
+    // Links open in a new tab: navigating the frame itself lands on sites that
+    // refuse to be framed. Put after any doctype so standards mode is kept.
+    // Web links go through the warning page (lib/links.ts).
+    const routed = await routeLinks(row.html, c.env.ADMIN_PASSWORD!)
+    const doctype = /^\s*<!doctype[^>]*>/i.exec(routed)?.[0] ?? ''
+    const html = `${doctype}<base target="_blank">${routed.slice(doctype.length)}`
+    return c.body(html, 200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'Content-Security-Policy': `default-src 'none'; img-src ${images}; style-src 'unsafe-inline'; font-src data:; sandbox allow-popups allow-popups-to-escape-sandbox`,

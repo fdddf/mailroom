@@ -4,6 +4,7 @@ import { sendBark } from '../src/worker/lib/bark'
 import { broadcastBodies, footerText, unsubscribeUrl } from '../src/worker/lib/broadcast'
 import { newApiKey, sha256Hex, signWebhook } from '../src/worker/lib/crypto'
 import { composeBody } from '../src/worker/lib/compose'
+import { decodeEntities, leavePage, linkSigned, linkWarnings, signLink, webUrl } from '../src/worker/lib/links'
 import { embedImages, mediaImages, pointToInline } from '../src/worker/lib/inline'
 import { MAX_FILE_BYTES, PART_SIZE, cleanFileName, fileUrl, formatBytes, partBytes, partCount, parseRange } from '../src/worker/lib/files'
 import { checkClientMetadata, isMetadataUrl, mcpPathDomain, parseScopes, pickRedirectUri, protectedResourceMetadata, resourceDomain, resourceMatches, validRedirectUri, verifyPkce, wwwAuthenticate } from '../src/worker/lib/oauth'
@@ -409,5 +410,32 @@ describe('oauth', () => {
   it('points a 401 at the resource metadata', () => {
     expect(wwwAuthenticate(origin)).toBe(`Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="send contacts broadcasts"`)
     expect(wwwAuthenticate(origin, 'invalid_token')).toContain('error="invalid_token"')
+  })
+})
+
+describe('links', () => {
+  it('only takes web links, entities decoded', () => {
+    expect(webUrl(' https://a.com/?x=1&amp;y=2 ')?.href).toBe('https://a.com/?x=1&y=2')
+    for (const no of ['mailto:a@b.co', 'javascript:alert(1)', '/relative', 'tel:123']) expect(webUrl(no)).toBeNull()
+    expect(decodeEntities('&lt;b&gt; &#65;&#x42; &bogus;')).toBe('<b> AB &bogus;')
+  })
+
+  it('warns about links that are not what they say', () => {
+    const w = (href: string, text = '') => linkWarnings(new URL(href), text)
+    expect(w('https://example.com/a', 'Read more')).toEqual([])
+    expect(w('https://mail.example.com/', 'www.example.com')).toEqual([])
+    expect(w('https://evil.io/login', 'https://paypal.com/login')[0]).toContain('says paypal.com')
+    expect(w('https://paypal.com@evil.io/')[0]).toContain('evil.io')
+    expect(w('http://10.0.0.1/')).toHaveLength(2)
+    expect(w('https://аpple.com/')[0]).toContain('non-Latin')
+  })
+
+  it('signs links so the page only vouches for its own', async () => {
+    const sig = await signLink('pw', 'https://a.com/', 'A')
+    expect(await linkSigned('pw', 'https://a.com/', 'A', sig)).toBe(true)
+    expect(await linkSigned('pw', 'https://b.com/', 'A', sig)).toBe(false)
+    expect(await linkSigned('other', 'https://a.com/', 'A', sig)).toBe(false)
+    expect(leavePage(new URL('https://a.com/'), '', false)).not.toContain('Open link')
+    expect(leavePage(new URL('https://a.com/"><x>'), '', true)).not.toContain('"><x>')
   })
 })
