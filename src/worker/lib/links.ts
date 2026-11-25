@@ -130,25 +130,30 @@ ${
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>${url ? `Open ${escapeHtml(url.hostname)}?` : 'Link'} · Mailroom</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap">
 <style>
-body{font:16px/1.55 system-ui,-apple-system,sans-serif;color:#141413;background:#faf9f5;margin:0;padding:12vh 24px}
-main{max-width:560px;margin:auto}
-.eyebrow{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#68685f;margin:0 0 6px}
-h1{font-size:26px;margin:0 0 8px;overflow-wrap:anywhere}
-.lead{color:#68685f;margin:0 0 24px}
-.warn{background:#fdf0e6;border:1px solid #f2c9a5;color:#7a3e0c;border-radius:10px;padding:12px 16px 12px 34px;margin:0 0 24px}
+:root{--canvas:#f8fafc;--card:#fff;--text:#101828;--dimmed:#667085;--border:#e5e9f0;--field:#f8fafc;--blue:#2563eb;--blue-hover:#1d4fd8;
+--warn-bg:#fff4e6;--warn-border:#ffd8a8;--warn-text:#a24a0d;--risky:#e8590c;--risky-hover:#d9480f}
+@media (prefers-color-scheme:dark){:root{--canvas:#181b22;--card:#1f232b;--text:#d7dce5;--dimmed:#8b93a1;--border:#3a404c;--field:#262b34;
+--warn-bg:rgba(232,89,12,.15);--warn-border:rgba(232,89,12,.4);--warn-text:#ffa94d}}
+*{box-sizing:border-box}
+body{font:15px/1.55 'DM Sans',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--canvas);margin:0;padding:12vh 20px}
+main{max-width:560px;margin:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:32px;
+box-shadow:0 4px 12px rgba(16,24,40,.08),0 1px 3px rgba(16,24,40,.05)}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dimmed);margin:0 0 6px}
+h1{font-size:24px;font-weight:700;margin:0 0 8px;overflow-wrap:anywhere}
+.lead{color:var(--dimmed);margin:0 0 24px}
+.warn{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-text);border-radius:8px;padding:12px 16px 12px 34px;margin:0 0 24px;font-size:14px}
 .warn li+li{margin-top:4px}
-.label{font-size:13px;font-weight:600;color:#68685f;margin:0 0 6px}
-.url,.text{background:#fff;border:1px solid #e3e1d8;border-radius:10px;padding:12px 14px;margin:0 0 20px;overflow-wrap:anywhere}
-.url{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
-.actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:28px}
-.actions span{color:#68685f;font-size:14px}
-.btn{font-weight:600;color:#fff;background:#2563eb;border-radius:8px;padding:10px 20px;text-decoration:none}
-.btn.risky{background:#b4441a}
-@media (prefers-color-scheme:dark){
-body{color:#f4f3ee;background:#1f1e1b}.eyebrow,.lead,.label,.actions span{color:#b5b3a8}
-.url,.text{background:#2a2925;border-color:#3d3b35}
-.warn{background:#3a2a1c;border-color:#6b4626;color:#f5c9a3}}
+.label{font-size:13px;font-weight:600;color:var(--dimmed);margin:0 0 6px}
+.url,.text{background:var(--field);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0 0 20px;overflow-wrap:anywhere;font-size:14px}
+.url{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
+.actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:28px 0 0}
+.actions span{color:var(--dimmed);font-size:14px}
+.btn{font-weight:600;font-size:14px;color:#fff;background:var(--blue);border-radius:8px;padding:9px 18px;text-decoration:none}
+.btn:hover{background:var(--blue-hover)}
+.btn.risky{background:var(--risky)}.btn.risky:hover{background:var(--risky-hover)}
+main>:last-child{margin-bottom:0}
 </style>
 </head><body><main>${body}</main></body></html>`
 }

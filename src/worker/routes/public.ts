@@ -82,7 +82,7 @@ export const publicRoutes = new Hono<AppEnv>()
     const signed = !!url && !!c.env.ADMIN_PASSWORD && (await linkSigned(c.env.ADMIN_PASSWORD, raw, text, c.req.query('sig') ?? ''))
     return c.html(leavePage(url, text, signed), url ? 200 : 400, {
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
       'Referrer-Policy': 'no-referrer',
       'X-Robots-Tag': 'noindex',
     })
