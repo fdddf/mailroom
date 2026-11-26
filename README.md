@@ -18,8 +18,10 @@ Everything is one Worker: the dashboard is served as static assets, and there is
 ## What you need
 
 - A Cloudflare account with your domains on it (DNS managed by Cloudflare)
-- Workers Paid plan, for Email Sending ([pricing](https://developers.cloudflare.com/email-service/))
 - Node.js 20+
+- The Workers Free plan is enough to run it; the Workers Paid plan to send to anyone
+
+Since [November 2026](https://developers.cloudflare.com/changelog/post/2026-11-24-email-sending-workers-free/), Email Sending is on the Workers Free plan too, so all of Mailroom deploys and runs at no cost. On Free it only sends to the verified destination addresses in your own account, which is enough to set a domain up, send test mail, read your inbox, and mail reports and alerts to yourself. Sending to anyone else needs the Workers Paid plan: 3,000 emails a month included, then $0.35 per 1,000 ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)). Mail to your verified addresses is free on either plan and counts against neither the monthly quota nor the daily limit. Receiving is unlimited on both.
 
 ## Install
 
@@ -123,6 +125,7 @@ Other scripts: `npm run typecheck`, `npm test`, and `npm run db:generate` after 
 
 - Cloudflare Email Service is meant for transactional mail. Broadcasts work, but send only to people who asked for your mail and keep bounces and complaints low, or your sending may be limited.
 - New accounts start at a daily sending quota that grows with reputation; broadcasts pause when it is reached and continue later without sending twice.
+- On the Workers Free plan, anything sent to an address that is not a verified destination in your account fails with `E_RECIPIENT_PLAN_RESTRICTED`, shown as the send's error in the dashboard. Broadcasts to real contacts therefore need the Paid plan.
 - One email: at most 50 recipients and 25 MiB, attachments included. Attachments grow by a third on the way, so at most 17 MiB of files go attached; anything more is sent as a download link (`/f/<token>/<name>`), which anyone holding it can use until the file is deleted under **Files**. Files of any size can be uploaded: the dashboard sends them to R2 in 10 MiB parts.
 - Received bodies are trimmed to fit D1's row limit; attachments over 20 MB are listed but not stored.
 

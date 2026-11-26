@@ -19,6 +19,8 @@
 
 不需要改任何配置文件。首次部署会在你的账号里自动创建数据库、存储桶和队列，并建好数据表。开始前，先在 Cloudflare 控制台开通一次 R2。
 
+[2026 年 11 月起](https://developers.cloudflare.com/changelog/post/2026-11-24-email-sending-workers-free/)，Email Sending 也对 Workers 免费套餐开放，所以整个 Mailroom 可以零成本部署运行。免费套餐只能发给你账号里已验证的目标地址（verified destination address），足够用来接入域名、发测试信、读收件箱，以及给自己发报告和提醒；发给其它收件人（包括群发给真实联系人）需要 Workers 付费套餐，每月含 3,000 封，超出每 1,000 封 $0.35（[价格](https://developers.cloudflare.com/email-service/platform/pricing/)）。发给已验证地址的邮件两种套餐都免费，不计入月额度和每日上限；收信两种套餐都不限量。
+
 **方式一：一键部署**
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fdddf/mailroom)
