@@ -19,9 +19,6 @@ export const parseAddressList = (value: string | string[] | undefined, max = 50)
   return list
 }
 
-// For LIKE … ESCAPE '\'.
-export const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
-
 // Clip to a UTF-8 byte budget without splitting a character.
 export const clipBytes = (str: string, maxBytes: number, suffix = '… (truncated)') => {
   const encoder = new TextEncoder()

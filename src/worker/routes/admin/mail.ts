@@ -1,13 +1,13 @@
-import { and, desc, eq, isNull, lt, ne, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { nowIso } from '../../db'
+import { contains, nowIso } from '../../db'
 import { BODY_FORMATS, mail, mailbox } from '../../db/schema'
 import type { AppEnv } from '../../env'
 import { composeBody } from '../../lib/compose'
 import { publicBase } from '../../lib/files'
 import { deleteAttachments, emailConfigured, sendMail } from '../../lib/mailer'
-import { bareAddress, likePattern, parseAddressList } from '../../lib/text'
+import { bareAddress, parseAddressList } from '../../lib/text'
 import { validate } from '../../lib/validate'
 import { filePicks, prepareFiles } from './files'
 import { PAGE_SIZE, domainRequired, idParam, inDomain, snippet, threadColumns } from './shared'
@@ -46,8 +46,7 @@ export const mailRoutes = new Hono<AppEnv>()
     const scope = and(eq(mail.direction, 'in'), inDomain(c, mail.domainId), address ? eq(mail.mailbox, address) : undefined)
     if (address) where.push(eq(mail.mailbox, address))
     if (q) {
-      const pattern = likePattern(q)
-      where.push(sql`(${sql.join([mail.fromAddr, mail.subject, mail.text].map((col) => sql`${col} LIKE ${pattern} ESCAPE '\\'`), sql` OR `)})`)
+      where.push(or(...[mail.fromAddr, mail.subject, mail.text].map((col) => contains(col, q))))
     }
     if (before) where.push(lt(mail.id, before))
 
@@ -178,7 +177,6 @@ export const mailRoutes = new Hono<AppEnv>()
 
     // The other party: the sender of an incoming email, the first recipient of an outgoing one.
     const counterpart = row.direction === 'in' ? bareAddress(row.fromAddr) : bareAddress(row.toAddrs[0])
-    const pattern = likePattern(counterpart)
     const related = counterpart
       ? await db
           .select({ id: mail.id, direction: mail.direction, createdAt: mail.createdAt, subject: mail.subject, snippet: snippet(mail.text) })
@@ -187,8 +185,10 @@ export const mailRoutes = new Hono<AppEnv>()
             and(
               ne(mail.id, id),
               eq(mail.domainId, row.domainId),
-              sql`((${mail.direction} = 'in' AND lower(${mail.fromAddr}) LIKE ${pattern} ESCAPE '\\')
-                OR (${mail.direction} = 'out' AND EXISTS (SELECT 1 FROM json_each(${mail.toAddrs}) WHERE lower(value) LIKE ${pattern} ESCAPE '\\')))`,
+              or(
+                and(eq(mail.direction, 'in'), contains(mail.fromAddr, counterpart)),
+                and(eq(mail.direction, 'out'), sql`EXISTS (SELECT 1 FROM json_each(${mail.toAddrs}) WHERE ${contains(sql`value`, counterpart)})`),
+              ),
             ),
           )
           .orderBy(desc(mail.id))
@@ -352,8 +352,7 @@ export const sentRoutes = new Hono<AppEnv>().get('/', validate('query', sentQuer
   const where: (SQL | undefined)[] = [eq(mail.direction, 'out'), inDomain(c, mail.domainId)]
   if (address) where.push(eq(mail.mailbox, address))
   if (q) {
-    const pattern = likePattern(q)
-    where.push(sql`(${sql.join([mail.toAddrs, mail.subject, mail.text].map((col) => sql`${col} LIKE ${pattern} ESCAPE '\\'`), sql` OR `)})`)
+    where.push(or(...[mail.toAddrs, mail.subject, mail.text].map((col) => contains(col, q))))
   }
   if (before) where.push(lt(mail.id, before))
   const rows = await c.var.db

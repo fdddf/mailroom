@@ -4,7 +4,7 @@
 
 import type { EmailAttachment } from '@cloudflare/workers-types'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import type { Db } from '../db'
+import { contains, type Db } from '../db'
 import { domain, mail, mailbox, type Attachment } from '../db/schema'
 import type { Env } from '../env'
 import { ATTACH_LIMIT } from './files'
@@ -273,7 +273,7 @@ export const recordDeliveryStatus = async (
         eq(mail.mailbox, bareAddress(hint.sender)),
         hint.subject === undefined ? undefined : eq(mail.subject, hint.subject),
         sql`${mail.createdAt} > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3 days')`,
-        sql`EXISTS (SELECT 1 FROM json_each(${mail.toAddrs} || '') WHERE lower(value) LIKE ${`%${bareAddress(hint.recipient)}%`})`,
+        sql`EXISTS (SELECT 1 FROM json_each(${mail.toAddrs} || '') WHERE ${contains(sql`value`, bareAddress(hint.recipient))})`,
       ),
       orderBy: desc(mail.id),
     })
